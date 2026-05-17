@@ -7,24 +7,24 @@ export interface BedrockModel {
 }
 
 export const BEDROCK_MODELS: BedrockModel[] = [
-  { id: 'qwen.qwen3-32b-v1:0',           name: 'Qwen3 32B',        group: 'Qwen'       },
-  { id: 'qwen.qwen3-coder-30b-a3b-v1:0', name: 'Qwen3 Coder 30B', group: 'Qwen'       },
-  { id: 'google.gemma-3-4b-it',           name: 'Gemma 3 4B',       group: 'Gemma'      },
-  { id: 'google.gemma-3-12b-it',          name: 'Gemma 3 12B',      group: 'Gemma'      },
-  { id: 'google.gemma-3-27b-it',          name: 'Gemma 3 27B',      group: 'Gemma'      },
-  { id: 'mistral.voxtral-small-24b-2507',  name: 'Voxtral Small 24B',group: 'Mistral'    },
-  { id: 'mistral.ministral-3-3b-instruct', name: 'Ministral 3B',    group: 'Mistral'    },
-  { id: 'mistral.ministral-3-8b-instruct', name: 'Ministral 8B',    group: 'Mistral'    },
-  { id: 'mistral.ministral-3-14b-instruct',name: 'Ministral 14B',   group: 'Mistral'    },
-  { id: 'minimax.minimax-m2.1',           name: 'MiniMax M2.1',     group: 'MiniMax'    },
-  { id: 'minimax.minimax-m2.5',           name: 'MiniMax M2.5',     group: 'MiniMax'    },
-  { id: 'nvidia.nemotron-nano-9b-v2',     name: 'Nemotron Nano 9B', group: 'NVIDIA'     },
-  { id: 'zai.glm-4.7',                   name: 'GLM-4.7',          group: 'GLM'        },
-  { id: 'zai.glm-5',                     name: 'GLM-5',            group: 'GLM'        },
-  { id: 'openai.gpt-oss-120b',           name: 'GPT OSS 120B',     group: 'OpenAI OSS' },
+  { id: 'mistral.voxtral-small-24b-2507',  name: 'Voxtral Small 24B', group: 'Mistral'    },
+  { id: 'mistral.ministral-3-3b-instruct', name: 'Ministral 3B',      group: 'Mistral'    },
+  { id: 'mistral.ministral-3-8b-instruct', name: 'Ministral 8B',      group: 'Mistral'    },
+  { id: 'mistral.ministral-3-14b-instruct',name: 'Ministral 14B',     group: 'Mistral'    },
+  { id: 'qwen.qwen3-32b-v1:0',            name: 'Qwen3 32B',          group: 'Qwen'       },
+  { id: 'qwen.qwen3-coder-30b-a3b-v1:0',  name: 'Qwen3 Coder 30B',   group: 'Qwen'       },
+  { id: 'google.gemma-3-4b-it',           name: 'Gemma 3 4B',         group: 'Gemma'      },
+  { id: 'google.gemma-3-12b-it',          name: 'Gemma 3 12B',        group: 'Gemma'      },
+  { id: 'google.gemma-3-27b-it',          name: 'Gemma 3 27B',        group: 'Gemma'      },
+  { id: 'minimax.minimax-m2.1',           name: 'MiniMax M2.1',       group: 'MiniMax'    },
+  { id: 'minimax.minimax-m2.5',           name: 'MiniMax M2.5',       group: 'MiniMax'    },
+  { id: 'nvidia.nemotron-nano-9b-v2',     name: 'Nemotron Nano 9B',   group: 'NVIDIA'     },
+  { id: 'zai.glm-4.7',                   name: 'GLM-4.7',            group: 'GLM'        },
+  { id: 'zai.glm-5',                     name: 'GLM-5',              group: 'GLM'        },
+  { id: 'openai.gpt-oss-120b',           name: 'GPT OSS 120B',       group: 'OpenAI OSS' },
 ];
 
-export const BEDROCK_DEFAULT_MODEL = 'qwen.qwen3-32b-v1:0';
+export const BEDROCK_DEFAULT_MODEL = 'mistral.voxtral-small-24b-2507';
 
 export const BEDROCK_GROUPS = [...new Set(BEDROCK_MODELS.map(m => m.group))];
 
