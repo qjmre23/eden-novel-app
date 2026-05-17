@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Eden Novel"
+version = "1.0.0"
+id = "artifacts/eden-novel"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18436
+
+[services.development]
+run = "pnpm --filter @workspace/eden-novel run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/eden-novel", "run", "build" ]
+publicDir = "artifacts/eden-novel/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18436"
+BASE_PATH = "/"
