@@ -241,9 +241,13 @@ export default function SettingsScreen() {
 
         {/* BEDROCK MODEL PICKER */}
         {isBedrock && (
-          <Section title="Bedrock Model">
+          <Section title="Story Model">
             <div className="px-4 pb-4">
-              <p className="text-gray-500 text-xs mb-2">Active model — changes take effect immediately</p>
+              <p className="text-gray-500 text-xs mb-2">Story generation model — changes take effect immediately</p>
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-purple-900/20 border border-purple-800/40">
+                <span className="text-purple-300 text-xs">🎙️</span>
+                <p className="text-purple-300 text-xs">TTS is handled separately by <span className="font-semibold">Mistral Voxtral</span> using your ABSK key</p>
+              </div>
               {BEDROCK_GROUPS.map(group => (
                 <div key={group} className="mb-3">
                   <p className="text-gray-600 text-xs font-semibold uppercase tracking-wider mb-1.5">{group}</p>
@@ -341,10 +345,14 @@ export default function SettingsScreen() {
 
         <Section title="Companion Narrator">
           <div className="px-4 pb-4 space-y-3">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-900/20 border border-purple-800/40">
+              <span className="text-purple-300 text-xs">🎙️</span>
+              <p className="text-purple-300 text-xs">Powered by <span className="font-semibold">Mistral Voxtral</span> via your ABSK key · Falls back to Microsoft Neural if unavailable</p>
+            </div>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-200">Enable Narrator</p>
-                <p className="text-xs text-gray-500 mt-0.5">Read story bubbles aloud using Edge TTS</p>
+                <p className="text-xs text-gray-500 mt-0.5">Read story bubbles aloud via Mistral Voxtral</p>
               </div>
               <ToggleSwitch checked={narratorSettings.enabled} onChange={v => updateNarrator({ enabled: v })} />
             </div>

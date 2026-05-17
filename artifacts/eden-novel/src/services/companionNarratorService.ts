@@ -119,14 +119,19 @@ async function playBase64Mp3(base64: string): Promise<void> {
   });
 }
 
-// ─── API TTS — always tried first (gives exact Microsoft Neural voices) ───────
+// ─── API TTS — Mistral Voxtral via Bedrock Mantle (primary), edge-tts fallback ─
+
+function getBedrockApiKey(): string {
+  return localStorage.getItem('bedrock_api_key') || '';
+}
 
 async function speakViaApi(text: string, voiceId: string): Promise<void> {
   const base = getTtsApiBase();
+  const apiKey = getBedrockApiKey();
   const res = await fetch(`${base}/tts/speak`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: text.slice(0, 2000), voice: voiceId }),
+    body: JSON.stringify({ text: text.slice(0, 2000), voice: voiceId, apiKey }),
   });
   if (!res.ok) throw new Error(`TTS API ${res.status}`);
   const { audioBase64 } = (await res.json()) as { audioBase64: string };
@@ -249,22 +254,17 @@ class CompanionNarratorService {
   }
 
   /**
-   * Always tries the API server first — gives exact Microsoft Neural voices regardless of platform.
-   * Falls back to Web Speech API if the API call fails (e.g. server unreachable).
+   * Speaks text via Mistral Voxtral (Bedrock Mantle).
+   * The API server tries Voxtral first; if the audio endpoint isn't available it
+   * falls back to edge-tts (Microsoft Neural). No browser Web Speech API is used.
    */
   private async speakUtterance(text: string, voiceId: string): Promise<void> {
     this._isPlaying = true;
     this.notify();
     try {
-      try {
-        await speakViaApi(text, voiceId);
-      } catch {
-        // API unavailable — fall back to browser Web Speech API
-        const synth = getSynth();
-        if (synth) {
-          await speakViaWebSpeech(text, voiceId);
-        }
-      }
+      await speakViaApi(text, voiceId);
+    } catch {
+      // TTS unavailable (server unreachable) — silently skip
     } finally {
       this._isPlaying = false;
       this.notify();
@@ -331,12 +331,28 @@ class CompanionNarratorService {
   async previewVoice(voice?: string): Promise<void> {
     const settings = loadSettings();
     const v = voice ?? settings.voice;
-    // Cancel any in-progress speech first
     this.stopAll();
-    // Small delay to let stopAll settle
     await new Promise(r => setTimeout(r, 80));
     try {
-      await this.speakUtterance('Welcome to Eden Novel. Your story begins now.', v);
+      // Preview uses the /preview endpoint which caches per voice+key pair
+      const base = getTtsApiBase();
+      const apiKey = getBedrockApiKey();
+      const res = await fetch(`${base}/tts/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice: v, apiKey }),
+      });
+      if (res.ok) {
+        const { audioBase64 } = (await res.json()) as { audioBase64: string };
+        this._isPlaying = true;
+        this.notify();
+        try {
+          await playBase64Mp3(audioBase64);
+        } finally {
+          this._isPlaying = false;
+          this.notify();
+        }
+      }
     } catch {}
   }
 

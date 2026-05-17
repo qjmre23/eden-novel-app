@@ -6,11 +6,8 @@ export interface BedrockModel {
   group: string;
 }
 
+// Story generation models — Mistral is excluded (Voxtral is used for TTS only)
 export const BEDROCK_MODELS: BedrockModel[] = [
-  { id: 'mistral.voxtral-small-24b-2507',  name: 'Voxtral Small 24B', group: 'Mistral'    },
-  { id: 'mistral.ministral-3-3b-instruct', name: 'Ministral 3B',      group: 'Mistral'    },
-  { id: 'mistral.ministral-3-8b-instruct', name: 'Ministral 8B',      group: 'Mistral'    },
-  { id: 'mistral.ministral-3-14b-instruct',name: 'Ministral 14B',     group: 'Mistral'    },
   { id: 'qwen.qwen3-32b-v1:0',            name: 'Qwen3 32B',          group: 'Qwen'       },
   { id: 'qwen.qwen3-coder-30b-a3b-v1:0',  name: 'Qwen3 Coder 30B',   group: 'Qwen'       },
   { id: 'google.gemma-3-4b-it',           name: 'Gemma 3 4B',         group: 'Gemma'      },
@@ -24,7 +21,10 @@ export const BEDROCK_MODELS: BedrockModel[] = [
   { id: 'openai.gpt-oss-120b',           name: 'GPT OSS 120B',       group: 'OpenAI OSS' },
 ];
 
-export const BEDROCK_DEFAULT_MODEL = 'mistral.voxtral-small-24b-2507';
+export const BEDROCK_DEFAULT_MODEL = 'qwen.qwen3-32b-v1:0';
+
+/** Mistral Voxtral — used exclusively for TTS. Not a story generation model. */
+export const VOXTRAL_TTS_MODEL = 'mistral.voxtral-small-24b-2507';
 
 export const BEDROCK_GROUPS = [...new Set(BEDROCK_MODELS.map(m => m.group))];
 
