@@ -77,15 +77,24 @@ function getTtsApiBase(): string {
   );
 }
 
-// ─── Web Audio API playback (for native APK — non-blocking, no delay) ────────
+// ─── Web Audio API playback ───────────────────────────────────────────────────
+// Tracks the currently playing source so we can stop it on pause.
 
 let _audioCtx: AudioContext | null = null;
+let _currentSource: AudioBufferSourceNode | null = null;
 
 function getAudioContext(): AudioContext {
   if (!_audioCtx || _audioCtx.state === 'closed') {
     _audioCtx = new AudioContext();
   }
   return _audioCtx;
+}
+
+function stopCurrentSource(): void {
+  if (_currentSource) {
+    try { _currentSource.onended = null; _currentSource.stop(); } catch {}
+    _currentSource = null;
+  }
 }
 
 async function playBase64Mp3(base64: string): Promise<void> {
@@ -101,12 +110,16 @@ async function playBase64Mp3(base64: string): Promise<void> {
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
-    source.onended = () => resolve();
+    source.onended = () => {
+      if (_currentSource === source) _currentSource = null;
+      resolve();
+    };
+    _currentSource = source;
     source.start(0);
   });
 }
 
-// ─── API TTS (edge-tts via Express — guaranteed Microsoft Neural voices) ─────
+// ─── API TTS — always tried first (gives exact Microsoft Neural voices) ───────
 
 async function speakViaApi(text: string, voiceId: string): Promise<void> {
   const base = getTtsApiBase();
@@ -120,7 +133,7 @@ async function speakViaApi(text: string, voiceId: string): Promise<void> {
   await playBase64Mp3(audioBase64);
 }
 
-// ─── Web Speech API (web fallback) ───────────────────────────────────────────
+// ─── Web Speech API — fallback only ──────────────────────────────────────────
 
 function getSynth(): SpeechSynthesis | null {
   return typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis : null;
@@ -173,8 +186,12 @@ function speakViaWebSpeech(text: string, voiceId: string): Promise<void> {
 
 // ─── CompanionNarratorService ─────────────────────────────────────────────────
 
+type QueueItem = { bubbleId: string; text: string };
+
 class CompanionNarratorService {
-  private audioQueue: Array<{ bubbleId: string; text: string }> = [];
+  private audioQueue: QueueItem[] = [];
+  /** The item currently being spoken — kept so pause can re-enqueue it. */
+  private currentItem: QueueItem | null = null;
   private alreadySpoken = new Set<string>();
   private isProcessing = false;
   private stopped = false;
@@ -191,24 +208,37 @@ class CompanionNarratorService {
 
   pause(): void {
     this.stopped = true;
-    if (!isNativePlatform()) getSynth()?.pause();
+    // Stop any Web Audio source mid-playback
+    stopCurrentSource();
+    // Pause Web Speech API mid-utterance
+    const synth = getSynth();
+    if (synth?.speaking && !synth.paused) synth.pause();
     this._isPlaying = false;
     this.notify();
   }
 
   resume(): void {
-    if (!isNativePlatform()) {
-      const synth = getSynth();
-      if (synth?.paused) {
-        this.stopped = false;
-        synth.resume();
-        this._isPlaying = true;
-        this.notify();
-        return;
-      }
+    this.stopped = false;
+
+    // If Web Speech API is paused mid-utterance, resume it directly
+    const synth = getSynth();
+    if (synth?.paused) {
+      synth.resume();
+      this._isPlaying = true;
+      this.notify();
+      return;
     }
+
+    // Re-enqueue the item that was cut off (API/Web Audio path)
+    if (this.currentItem) {
+      const alreadyQueued = this.audioQueue.some(i => i.bubbleId === this.currentItem!.bubbleId);
+      if (!alreadyQueued) {
+        this.audioQueue.unshift(this.currentItem);
+      }
+      this.currentItem = null;
+    }
+
     if (!this.isProcessing && this.audioQueue.length > 0) {
-      this.stopped = false;
       void this.processQueue();
     }
   }
@@ -218,21 +248,23 @@ class CompanionNarratorService {
     else this.resume();
   }
 
+  /**
+   * Always tries the API server first — gives exact Microsoft Neural voices regardless of platform.
+   * Falls back to Web Speech API if the API call fails (e.g. server unreachable).
+   */
   private async speakUtterance(text: string, voiceId: string): Promise<void> {
     this._isPlaying = true;
     this.notify();
     try {
-      if (isNativePlatform()) {
+      try {
         await speakViaApi(text, voiceId);
-      } else {
+      } catch {
+        // API unavailable — fall back to browser Web Speech API
         const synth = getSynth();
         if (synth) {
           await speakViaWebSpeech(text, voiceId);
-        } else {
-          await speakViaApi(text, voiceId);
         }
       }
-    } catch {
     } finally {
       this._isPlaying = false;
       this.notify();
@@ -264,11 +296,16 @@ class CompanionNarratorService {
       const item = this.audioQueue.shift();
       if (!item) break;
 
+      this.currentItem = item;
+
       const settings = loadSettings();
       if (!settings.enabled) break;
 
       const cleaned = cleanText(item.text);
-      if (!shouldSpeak(cleaned)) continue;
+      if (!shouldSpeak(cleaned)) {
+        this.currentItem = null;
+        continue;
+      }
 
       try {
         await this.speakUtterance(cleaned.slice(0, 2000), settings.voice);
@@ -276,10 +313,16 @@ class CompanionNarratorService {
         this._isPlaying = false;
         this.notify();
       }
+
+      this.currentItem = null;
     }
 
     this.isProcessing = false;
-    if (!this.stopped && this.audioQueue.length === 0) {
+
+    // Handle race: resume() was called while we were winding down
+    if (!this.stopped && this.audioQueue.length > 0) {
+      void this.processQueue();
+    } else {
       this._isPlaying = false;
       this.notify();
     }
@@ -288,7 +331,10 @@ class CompanionNarratorService {
   async previewVoice(voice?: string): Promise<void> {
     const settings = loadSettings();
     const v = voice ?? settings.voice;
-    if (!isNativePlatform()) getSynth()?.cancel();
+    // Cancel any in-progress speech first
+    this.stopAll();
+    // Small delay to let stopAll settle
+    await new Promise(r => setTimeout(r, 80));
     try {
       await this.speakUtterance('Welcome to Eden Novel. Your story begins now.', v);
     } catch {}
@@ -297,7 +343,10 @@ class CompanionNarratorService {
   stopAll(): void {
     this.stopped = true;
     this.audioQueue = [];
-    if (!isNativePlatform()) getSynth()?.cancel();
+    this.currentItem = null;
+    stopCurrentSource();
+    const synth = getSynth();
+    if (synth) synth.cancel();
     this._isPlaying = false;
     this.isProcessing = false;
     this.notify();
