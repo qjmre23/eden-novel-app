@@ -21,8 +21,11 @@ export default function ChoiceButton({ text, roleplayText, index, onClick, disab
     >
       <span className="text-blue-400 font-bold mr-2">{index + 1}.</span>
       {text}
-      {roleplayText && (
+      {roleplayText && roleplayText.trim().length > 0 && (
         <p className="text-gray-500 text-xs mt-1 ml-5 italic">"{roleplayText}"</p>
+      )}
+      {roleplayText !== undefined && roleplayText.trim().length === 0 && (
+        <p className="text-gray-600 text-xs mt-1 ml-5 italic opacity-70">(silent)</p>
       )}
     </motion.button>
   );

@@ -375,8 +375,11 @@ export default function StoryScreen() {
 
   const processParsedOutput = async (rawText: string, genre: string, mcName: string): Promise<'decision' | 'cinematic' | 'roleplay' | 'none'> => {
     const parsed = parseNarrativeTags(rawText);
-    const rawBubbles = parseBubbles(parsed.cleanText);
     const chars = await getCharactersByNovel(novelId);
+    const knownNames = chars
+      .filter(c => c.display_name && c.display_name.toLowerCase() !== mcName.toLowerCase())
+      .map(c => c.display_name);
+    const rawBubbles = parseBubbles(parsed.cleanText, knownNames);
 
     await renderBubblesSequentially(rawBubbles, chars, mcName);
 

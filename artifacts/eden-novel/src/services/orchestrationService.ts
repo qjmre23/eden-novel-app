@@ -427,14 +427,19 @@ export async function generateNextScene(
     `Small moment — minutes pass, not hours or days.`,
     `Show realistic consequences on the people immediately present.`,
     ``,
-    `ABSOLUTE RULES — violation breaks the game:`,
-    `✗ NEVER use "[You]", "[MC]", "[Player]", or "[${mcName}]" as a speaker tag — ever.`,
+    `ABSOLUTE FORMAT RULES — violation breaks the messenger UI:`,
+    `✓ EVERY NPC spoken line is its OWN LINE, formatted exactly: [Name]: "spoken words"`,
+    `✓ Action beats and narration are SEPARATE LINES from dialogue. NEVER write \`Mirae glances at him. "I know," she whispers.\` as one line — that collapses to a single italic block. ALWAYS split:`,
+    `    Mirae glances at him.`,
+    `    [Mirae]: "I know."`,
+    `✓ Each narrator line is max 2-3 sentences and renders as its own chat bubble.`,
+    `✗ NEVER write inline prose dialogue like \`"...", she said.\` — that destroys the UI.`,
+    `✗ NEVER use "[You]", "[MC]", "[Player]", or "[${mcName}]" as a speaker tag.`,
     `✗ NEVER echo or repeat the PLAYER ACTION text inside any character's dialogue.`,
     `✗ NEVER write what ${mcName} says outside of /choice/ -> "..." suffixes.`,
-    `✓ Only write NPC reactions, narration, and consequences of the player's action.`,
-    `✓ Use [NPC Name]: "dialogue" ONLY for NPCs — never for ${mcName}.`,
     `✓ Honor every constraint in the SCENE DIRECTIVE above.`,
     `✓ Honor every emotional state in the [CHARACTER PROFILES FOR THIS SCENE] block.`,
+    `✓ Every scene must contain at least one unexpected beat, one sensory anchor, and one piece of subtext. No bland status updates.`,
     ``,
     `CHOICE FORMAT (always last lines):`,
     `/choice/ [specific action the player can take, grounded in this scene] -> "MC's in-character spoken words if they choose this"`,
@@ -603,7 +608,10 @@ export async function applyParsedEffects(
     ).catch(() => {});
   }
 
-  const rawBubbles = parseBubbles(fullText);
+  const knownNames = characters
+    .filter(c => c.display_name && c.display_name.toLowerCase() !== mcName.toLowerCase())
+    .map(c => c.display_name);
+  const rawBubbles = parseBubbles(fullText, knownNames);
   const speakerNames = extractSpeakerNames(rawBubbles, mcName);
   for (const speakerName of speakerNames) {
     const existing = characters.find(c => c.display_name.toLowerCase() === speakerName.toLowerCase());
