@@ -1,9 +1,3 @@
-# EDEN NOVEL — FRONTEND PROTOTYPE PROMPT
-
-Copy everything below the ▼ line and paste it into a fresh Claude conversation. The output is a complete, beautifully-animated frontend prototype that can be wired into the Eden Novel backend by swapping its mock adapter for the real services.
-
----
-
 ▼
 
 You are building a complete frontend prototype for **EDEN NOVEL** — a dark anime interactive narrative app where the player lives inside a messenger-chat UI driven by AI. **Do not write any backend code.** Everything must run on mock data + a thin adapter interface so we can plug the real backend (already built) in by replacing one file later.
