@@ -1,32 +1,24 @@
-import React from 'react';
+import { motion } from 'framer-motion'
 
-interface Props {
-  content: string;
-  isTimeSkip?: boolean;
-  timeSkipLabel?: string;
-  isStreaming?: boolean;
-  textSize?: 'small' | 'medium' | 'large';
+interface NarratorBubbleProps {
+  content: string
+  delay?: number
 }
 
-const TEXT_SIZE = { small: 'text-xs', medium: 'text-sm', large: 'text-base' };
-
-export default function NarratorBubble({ content, isTimeSkip, timeSkipLabel, isStreaming, textSize = 'medium' }: Props) {
-  if (isTimeSkip) {
-    return (
-      <div className="flex items-center gap-3 my-5 bubble-animate px-4">
-        <div className="flex-1 h-px bg-gray-700/60" />
-        <span className="text-gray-500 text-xs font-semibold tracking-widest uppercase">{timeSkipLabel}</span>
-        <div className="flex-1 h-px bg-gray-700/60" />
-      </div>
-    );
-  }
-
+export function NarratorBubble({ content, delay = 0 }: NarratorBubbleProps) {
   return (
-    <div className="mx-4 my-4 bubble-animate text-center">
-      <p className={`text-gray-400 ${TEXT_SIZE[textSize]} leading-relaxed italic whitespace-pre-wrap`}>
+    <motion.div
+      className="w-full px-1"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay, ease: [0.22, 1, 0.36, 1] }}
+    >
+      <p
+        className="font-display italic text-[15px] text-[#c0bfd8] leading-7 tracking-wide"
+        style={{ textShadow: '0 1px 8px rgba(0,0,0,0.5)' }}
+      >
         {content}
-        {isStreaming && <span className="inline-block w-0.5 h-4 bg-gray-400 animate-pulse ml-0.5 -mb-1" />}
       </p>
-    </div>
-  );
+    </motion.div>
+  )
 }

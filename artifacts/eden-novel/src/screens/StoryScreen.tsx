@@ -1,1008 +1,512 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams, useLocation } from 'wouter';
-import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, Play, Pause, Users, BarChart2, Globe, BookOpen, Package, Volume2, VolumeX } from 'lucide-react';
-import { useModel } from '../context/ModelContext';
-import { novaSonicService } from '../services/novaSonicService';
-import MessageBubble from '../components/chat/MessageBubble';
-import NarratorBubble from '../components/chat/NarratorBubble';
-import EnvironmentBubble from '../components/chat/EnvironmentBubble';
-import TypingIndicator from '../components/chat/TypingIndicator';
-import MinigameWrapper from '../components/minigames/MinigameWrapper';
-import { shouldTriggerMinigame } from '../services/minigameService';
-import type { MinigameResult } from '../services/minigameService';
-import { predictiveEngine } from '../services/predictiveEngine';
-import { getEnvironmentImage } from '../services/environmentImageService';
-import ChoiceButton from '../components/choice/ChoiceButton';
-import CustomActionInput from '../components/choice/CustomActionInput';
-import CharacterPanel from '../panels/CharacterPanel';
-import StatusPanel from '../panels/StatusPanel';
-import WorldPanel from '../panels/WorldPanel';
-import AskEdenPanel from '../panels/AskEdenPanel';
-import InventoryPanel from '../panels/InventoryPanel';
-import LevelUpOverlay from '../overlays/LevelUpOverlay';
-import SkillTreeOverlay from '../overlays/SkillTreeOverlay';
-import LoadingOverlay from '../components/common/LoadingOverlay';
-import { useStory, type Bubble } from '../context/StoryContext';
-import { useProgression } from '../context/ProgressionContext';
-import { useAppSettings } from '../context/AppContext';
-import { loadNovel, incrementActionCount, resetActionCount } from '../services/novelService';
-import { generateNextScene, generateNovelOpening, isMCSpeaker, applyParsedEffects } from '../services/orchestrationService';
-import { orchestrateScene } from '../services/audioOrchestrator';
-import { assignVoice } from '../services/voiceAssignmentService';
-import { closeChapterAndBeginNext } from '../services/chapterService';
-import { getProgression, updateProgression } from '../database/progressionDB';
-import { addItem, removeItem } from '../database/inventoryDB';
-import { updateRelationship, applyRelationshipDelta } from '../database/characterDB';
-import { makePilotDecision, generatePilotRoleplayAction, PILOT_PAUSE_REASONS } from '../services/pilotService';
-import { parseNarrativeTags, parseBubbles } from '../parsers/tagParser';
-import { getCharactersByNovel } from '../database/characterDB';
-import { addScene, getScenesByNovel, countScenesInChapter } from '../database/sceneDB';
-import { getLastChapter } from '../database/chapterDB';
-import { loadWorldState } from '../services/worldStateService';
-import { presetManager } from '../services/presetManager';
-import { generateId } from '../core/utils';
-import { companionNarratorService } from '../services/companionNarratorService';
-import type { Novel } from '../database/db';
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useRoute, useLocation } from 'wouter'
+import {
+  ArrowLeft, Settings, Play, Pause,
+  Users, BarChart2, Globe, Package, MessageSquare,
+} from 'lucide-react'
+import { adapter, parseChoicesFromScene } from '../services/adapter'
+import { parseBubbles } from '../parsers/tagParser'
+import { useStory } from '../context/StoryContext'
+import { useApp } from '../context/AppContext'
+import { TensionBar } from '../components/badges/TensionBar'
+import { MessageBubble } from '../components/chat/MessageBubble'
+import { NarratorBubble } from '../components/chat/NarratorBubble'
+import { MCEchoBubble } from '../components/chat/MCEchoBubble'
+import { TypingIndicator } from '../components/chat/TypingIndicator'
+import { EnvironmentBubble } from '../components/chat/EnvironmentBubble'
+import { ChapterTransitionCard } from '../components/chat/ChapterTransitionCard'
+import { ScrollToBottomPill } from '../components/chat/ScrollToBottomPill'
+import { ChoiceButton } from '../components/choice/ChoiceButton'
+import { CustomActionInput } from '../components/choice/CustomActionInput'
+import { AnimatedPanel } from '../components/common/AnimatedPanel'
+import { CharacterPanel } from '../panels/CharacterPanel'
+import { StatusPanel } from '../panels/StatusPanel'
+import { WorldPanel } from '../panels/WorldPanel'
+import { InventoryPanel } from '../panels/InventoryPanel'
+import { AskEdenPanel } from '../panels/AskEdenPanel'
+import type { ChatItem, Character } from '../types'
 
-type Panel = 'characters' | 'status' | 'world' | 'eden' | 'inventory' | null;
+let ITEM_COUNTER = 0
+function itemId(): string { return `item-${++ITEM_COUNTER}` }
 
-interface ChoiceMapEntry {
-  label: string;
-  roleplayText?: string;
-}
+export function StoryScreen() {
+  const [match, params] = useRoute('/story/:novelId')
+  const [, navigate]    = useLocation()
+  const novelId         = parseInt((params as any)?.novelId ?? '0')
 
-interface ChapterTransitionCardProps {
-  data: NonNullable<Bubble['chapterTransitionData']>;
-  onAskEden: () => void;
-  onNext: () => void;
-  onPrevChapter?: () => void;
-}
+  const { state, dispatch } = useStory()
+  const { state: appState, dispatch: appDispatch } = useApp()
 
-function ChapterTransitionCard({ data, onAskEden, onNext, onPrevChapter }: ChapterTransitionCardProps) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="mx-3 my-4 rounded-2xl overflow-hidden border border-yellow-600/30 bg-gradient-to-b from-yellow-950/40 to-gray-900/80"
-    >
-      <div className="px-5 py-5 text-center">
-        <p className="text-yellow-500/70 text-xs uppercase tracking-widest font-semibold mb-1">
-          Chapter {data.completedChapter} Complete
-        </p>
-        <h3 className="text-white font-bold text-lg leading-snug">{data.title}</h3>
-        <div className="mt-4 flex gap-2 justify-center flex-wrap">
-          {data.completedChapter > 1 && onPrevChapter && (
-            <button
-              onClick={onPrevChapter}
-              className="px-4 py-1.5 rounded-full text-xs font-semibold border border-gray-600/50 text-gray-400 bg-gray-800/40 hover:bg-gray-700/50 transition-colors"
-            >
-              ← Ch. {data.completedChapter - 1}
-            </button>
-          )}
-          <button
-            onClick={onAskEden}
-            className="px-4 py-1.5 rounded-full text-xs font-semibold border border-purple-600/50 text-purple-300 bg-purple-900/30 hover:bg-purple-800/40 transition-colors"
-          >
-            Ask Eden
-          </button>
-          <button
-            onClick={onNext}
-            className="px-4 py-1.5 rounded-full text-xs font-semibold bg-yellow-600/30 border border-yellow-600/50 text-yellow-200 hover:bg-yellow-600/50 transition-colors"
-          >
-            Chapter {data.newChapter} →
-          </button>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
+  const chatRef        = useRef<HTMLDivElement>(null)
+  const streamBuffer   = useRef('')
+  const [atBottom, setAtBottom]     = useState(true)
+  const [showPill, setShowPill]     = useState(false)
+  const [activePanel, setActivePanel] = useState<string | null>(null)
+  const autoPilotTimer = useRef<ReturnType<typeof setTimeout>>(null as any)
 
-export default function StoryScreen() {
-  const params = useParams<{ novelId: string }>();
-  const [, navigate] = useLocation();
-  const novelId = parseInt(params.novelId ?? '0');
-  const { state, dispatch } = useStory();
-  const { reload: reloadProgression, skills: progressionSkills } = useProgression();
-  const { settings } = useAppSettings();
-
-  const { provider } = useModel();
-  const [novel, setNovel] = useState<Novel | null>(null);
-  const [panel, setPanel] = useState<Panel>(null);
-  const [showSkillTree, setShowSkillTree] = useState(false);
-  const [initialized, setInitialized] = useState(false);
-  const [loadingMsg, setLoadingMsg] = useState('');
-  const [ttsPaused, setTtsPaused] = useState(false);
-  const [narratorPlaying, setNarratorPlaying] = useState(() => companionNarratorService.isPlaying());
-  const [activeMinigame, setActiveMinigame] = useState<import('../services/minigameService').MinigameType | null>(null);
-  const lastEnvLocationRef = useRef<string>('');
-
-  // Sync narrator play/pause state from service
+  // ── Load novel data ──────────────────────────────────────────────────────
   useEffect(() => {
-    const sync = () => setNarratorPlaying(companionNarratorService.isPlaying());
-    companionNarratorService.addListener(sync);
-    return () => companionNarratorService.removeListener(sync);
-  }, []);
+    if (!novelId) return
+    ;(async () => {
+      const [novel, characters, ws] = await Promise.all([
+        adapter.loadNovel(novelId),
+        adapter.loadCharacters(novelId),
+        adapter.loadWorldState(novelId),
+      ])
+      dispatch({ type: 'SET_NOVEL', novel })
+      dispatch({ type: 'SET_CHARACTERS', characters })
+      dispatch({ type: 'SET_WORLD_STATE', ws })
 
-  // Off-topic counter for story drift detection
-  const offTopicRef = useRef(0);
-
-  // Persisted choice roleplay map per novel
-  const choiceMapRef = useRef<Record<string, ChoiceMapEntry>>({});
-  const CHOICE_MAP_KEY = `eden_choices_${novelId}`;
-
-  const BUBBLES_KEY = `eden_bubbles_${novelId}`;
-  const saveBubblesToStorage = useCallback((bubbles: Bubble[]) => {
-    try {
-      localStorage.setItem(BUBBLES_KEY, JSON.stringify(bubbles.slice(-150)));
-    } catch {}
-  }, [BUBBLES_KEY]);
-
-  // Persist a scene (AI output + parsed bubbles) to IndexedDB
-  const saveSceneToDB = useCallback(async (rawText: string, bubblesToSave: Bubble[], interactionMode: string) => {
-    try {
-      const lastChapter = await getLastChapter(novelId, state.timelineId);
-      const chapterId = lastChapter?.id ?? 0;
-      const sceneCount = chapterId ? await countScenesInChapter(chapterId) : 0;
-      await addScene({
-        chapter_id: chapterId,
-        novel_id: novelId,
-        timeline_id: state.timelineId,
-        scene_number: sceneCount + 1,
-        raw_output: rawText,
-        parsed_bubbles_json: JSON.stringify(bubblesToSave),
-        interaction_mode: interactionMode,
-        metadata_json: JSON.stringify({ action_count: state.actionCount, chapter: state.currentChapter }),
-        created_at: Date.now(),
-      });
-    } catch {}
-  }, [novelId, state.timelineId, state.actionCount, state.currentChapter]);
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const pilotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bubblesRef = useRef<Bubble[]>([]);
-
-  // v5: live narrative tension + scene plan (dev only)
-  const [narrativeTension, setNarrativeTension] = useState<number>(0);
-  const [lastScenePlan, setLastScenePlan] = useState<any>(null);
-  const [showSceneDevPanel, setShowSceneDevPanel] = useState(false);
-  const devTapTimes = useRef<number[]>([]);
-
-  const refreshNarrativeTension = useCallback(async () => {
-    if (!novelId) return;
-    try {
-      const ws = await loadWorldState(novelId);
-      setNarrativeTension(ws.narrative_tension ?? 0);
-    } catch {}
-  }, [novelId]);
-  useEffect(() => {
-    bubblesRef.current = state.bubbles;
-  }, [state.bubbles]);
-
-  const scrollToBottom = useCallback(() => {
-    setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }), 50);
-  }, []);
-
-  // Refresh narrative tension whenever the action count or chapter changes —
-  // this catches both post-scene momentum updates and chapter transitions.
-  useEffect(() => {
-    void refreshNarrativeTension();
-  }, [state.actionCount, state.currentChapter, refreshNarrativeTension]);
-
-  // Load choice map on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(CHOICE_MAP_KEY);
-      if (saved) choiceMapRef.current = JSON.parse(saved);
-    } catch {}
-  }, [CHOICE_MAP_KEY]);
-
-  const saveChoiceMap = useCallback(() => {
-    try {
-      localStorage.setItem(CHOICE_MAP_KEY, JSON.stringify(choiceMapRef.current));
-    } catch {}
-  }, [CHOICE_MAP_KEY]);
-
-  useEffect(() => {
-    if (!novelId) return;
-    setLoadingMsg('Loading story…');
-    loadNovel(novelId).then(async n => {
-      if (!n) { navigate('/novels'); return; }
-      setNovel(n);
-      await presetManager.loadAll();
-      const ws = await loadWorldState(novelId);
-      const chars = await getCharactersByNovel(novelId);
-      const mc = chars.find(c => c.role === 'protagonist');
+      // Push environment card at top
       dispatch({
-        type: 'SET_NOVEL',
-        novelId,
-        mcUid: mc?.internal_uid ?? '',
-        genre: n.genre,
-        timelineId: n.active_timeline_id,
-      });
-      // Seed action count AFTER SET_NOVEL so it doesn't get reset to 0 by that reducer case
-      dispatch({ type: 'SET_ACTION_COUNT', n: n.action_count ?? 0 });
-
-      // Load saved scenes from IndexedDB (primary source of truth)
-      try {
-        const dbScenes = await getScenesByNovel(novelId);
-        if (dbScenes.length > 0) {
-          const loadedBubbles: Bubble[] = [];
-          for (const scene of dbScenes) {
-            try {
-              const parsed = JSON.parse(scene.parsed_bubbles_json) as Bubble[];
-              if (Array.isArray(parsed)) loadedBubbles.push(...parsed);
-            } catch {}
-          }
-          if (loadedBubbles.length > 0) {
-            dispatch({ type: 'LOAD_BUBBLES', bubbles: loadedBubbles });
-            dispatch({ type: 'SET_INTERACTION', mode: 'roleplay' });
-          }
-        }
-      } catch {}
-
-      // Fallback to localStorage for backwards compatibility
-      if (bubblesRef.current.length === 0) {
-        try {
-          const saved = localStorage.getItem(`eden_bubbles_${novelId}`);
-          if (saved) {
-            const parsed = JSON.parse(saved) as Bubble[];
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              dispatch({ type: 'LOAD_BUBBLES', bubbles: parsed });
-              dispatch({ type: 'SET_INTERACTION', mode: 'roleplay' });
-            }
-          }
-        } catch {}
-      }
-
-      dispatch({ type: 'SET_CHAPTER', n: (ws as any).current_chapter ?? 1 });
-      dispatch({ type: 'SET_LOCATION', loc: (ws as any).current_location ?? '' });
-      dispatch({ type: 'SET_ARC', arc: (ws as any).current_arc ?? '' });
-      if (mc) await reloadProgression(novelId, mc.internal_uid);
-      setLoadingMsg('');
-      setInitialized(true);
-      // Restore last choices from localStorage if bubbles are already loaded
-      try {
-        const savedChoices = localStorage.getItem(`eden_last_choices_${novelId}`);
-        if (savedChoices) {
-          const restoredChoices = JSON.parse(savedChoices) as { choices: string[]; mode: string };
-          if (restoredChoices.choices?.length > 0) {
-            dispatch({ type: 'SET_INTERACTION', mode: restoredChoices.mode as any, choices: restoredChoices.choices });
-          }
-        }
-      } catch {}
-    });
-  }, [novelId]);
-
-  useEffect(() => {
-    if (initialized && state.bubbles.length === 0 && novel) {
-      handleOpeningScene();
-    }
-  }, [initialized]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [state.bubbles, state.streamingText]);
-
-  // Clear TTS dedupe when novel changes
-  useEffect(() => {
-    setTtsPaused(false);
-    novaSonicService.clearDedupe();
-    companionNarratorService.clearDedupe();
-  }, [novelId]);
-
-  // Nova TTS: speak each new finished bubble with persistent voice assignment
-  useEffect(() => {
-    if (provider !== 'nova') return;
-    if (!state.bubbles.length) return;
-    const latest = state.bubbles[state.bubbles.length - 1];
-    if (latest.isStreaming || (latest as any).isTyping) return;
-    const text = latest.content?.trim();
-    if (!text) return;
-    const isNarr = !!latest.isNarrator;
-    // Respect per-type voice toggles from Settings
-    if (isNarr && localStorage.getItem('eden_narrator_voice_enabled') === 'false') return;
-    if (!isNarr && localStorage.getItem('eden_char_voices_enabled') === 'false') return;
-    (async () => {
-      const voice = latest.speaker
-        ? await assignVoice(novelId, latest.speaker, isNarr)
-        : undefined;
-      novaSonicService.speakBubble(latest.id, text, latest.speaker, isNarr, voice);
-    })();
-  }, [state.bubbles, provider, novelId]);
-
-  const addBubble = useCallback((bubble: Omit<Bubble, 'id' | 'timestamp'>) => {
-    const b: Bubble = { ...bubble, id: generateId(), timestamp: Date.now() };
-    dispatch({ type: 'ADD_BUBBLE', bubble: b });
-    companionNarratorService.enqueueBubble(b);
-  }, [dispatch]);
-
-  const handleOpeningScene = async () => {
-    if (!novel) return;
-    dispatch({ type: 'SET_GENERATING', val: true });
-    dispatch({ type: 'SET_INTERACTION', mode: 'passive' });
-
-    let fullText = '';
-
-    addBubble({ content: '', isNarrator: true, isStreaming: true });
-
-    await generateNovelOpening(novelId, novel.genre, novel.mc_name, novel.world_name, novel.story_seed, {
-      onToken: (t) => {
-        fullText += t;
-        dispatch({ type: 'UPDATE_STREAMING', text: fullText });
-      },
-      onError: (e) => dispatch({ type: 'SET_ERROR', err: e }),
-    }, novel.mc_traits_json, novel.starting_location, novel.starting_skills_json);
-
-    dispatch({ type: 'CLEAR_BUBBLES' });
-    const openingMode = await processParsedOutput(fullText, novel.genre, novel.mc_name);
-
-    // Persist opening scene to IndexedDB
-    await saveSceneToDB(fullText, bubblesRef.current, openingMode);
-
-    dispatch({ type: 'SET_GENERATING', val: false });
-    if (openingMode === 'none' || openingMode === 'roleplay') {
-      dispatch({ type: 'SET_INTERACTION', mode: 'roleplay' });
-    }
-  };
-
-  const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-
-  const renderBubblesSequentially = useCallback(async (
-    rawBubbles: Array<{ speaker?: string; content: string; isNarrator?: boolean }>,
-    chars: Array<{ display_name: string; bubble_color: string }>,
-    mcName: string,
-  ) => {
-    for (const b of rawBubbles) {
-      if (b.isNarrator) {
-        dispatch({ type: 'SET_TYPING' });
-        await sleep(600 + Math.random() * 1200);
-        dispatch({ type: 'CLEAR_TYPING' });
-        addBubble({ content: b.content, isNarrator: true });
-      } else if (b.speaker && isMCSpeaker(b.speaker, mcName)) {
-        continue;
-      } else {
-        const char = chars.find(c => c.display_name === b.speaker);
-        dispatch({ type: 'SET_TYPING' });
-        await sleep(600 + Math.random() * 1200);
-        dispatch({ type: 'CLEAR_TYPING' });
-        addBubble({ content: b.content, speaker: b.speaker, bubbleColor: char?.bubble_color });
-      }
-      await sleep(settings.bubbleDelay);
-      scrollToBottom();
-    }
-  }, [dispatch, addBubble, settings.bubbleDelay, scrollToBottom]);
-
-  const processParsedOutput = async (rawText: string, genre: string, mcName: string): Promise<'decision' | 'cinematic' | 'roleplay' | 'none'> => {
-    const parsed = parseNarrativeTags(rawText);
-    const chars = await getCharactersByNovel(novelId);
-    const knownNames = chars
-      .filter(c => c.display_name && c.display_name.toLowerCase() !== mcName.toLowerCase())
-      .map(c => c.display_name);
-    const rawBubbles = parseBubbles(parsed.cleanText, knownNames);
-
-    await renderBubblesSequentially(rawBubbles, chars, mcName);
-
-    if (parsed.timeSkip) {
-      addBubble({ content: parsed.timeSkip, isNarrator: true });
-    }
-
-    if (parsed.locationChange) {
-      dispatch({ type: 'SET_LOCATION', loc: parsed.locationChange });
-      // Environment bubbles are dispatched here (in processParsedOutput) rather than in
-      // audioOrchestrator so they can be sequenced alongside other narrative bubbles and
-      // de-duplicated against lastEnvLocationRef before the image fetch completes.
-      if (parsed.locationChange !== lastEnvLocationRef.current && localStorage.getItem('eden_env_images_enabled') !== 'false') {
-        lastEnvLocationRef.current = parsed.locationChange;
-        const locName = parsed.locationChange;
-        getEnvironmentImage(genre, locName).then(imgUrl => {
-          addBubble({ content: locName, isEnvironment: true, environmentImageUrl: imgUrl });
-        }).catch(() => {});
-      }
-    }
-    for (const su of parsed.skillUnlocks) dispatch({ type: 'ADD_SKILL_UNLOCK', skill: su });
-
-    // Store choice roleplay text mapping
-    if (parsed.choiceOptions.length > 0) {
-      for (const opt of parsed.choiceOptions) {
-        if (opt.roleplayText) {
-          choiceMapRef.current[opt.label] = { label: opt.label, roleplayText: opt.roleplayText };
-        }
-      }
-      saveChoiceMap();
-    }
-
-    const LAST_CHOICES_KEY = `eden_last_choices_${novelId}`;
-
-    if (parsed.interactionMode) {
-      dispatch({ type: 'SET_INTERACTION', mode: parsed.interactionMode as any, choices: parsed.choices });
-      if (parsed.choices.length > 0) {
-        try { localStorage.setItem(LAST_CHOICES_KEY, JSON.stringify({ choices: parsed.choices, mode: parsed.interactionMode })); } catch {}
-      }
-      return parsed.interactionMode as any;
-    }
-
-    if (parsed.choices.length > 0) {
-      dispatch({ type: 'SET_INTERACTION', mode: 'decision', choices: parsed.choices });
-      try { localStorage.setItem(LAST_CHOICES_KEY, JSON.stringify({ choices: parsed.choices, mode: 'decision' })); } catch {}
-      if (state.novelId && state.mcUid) {
-        predictiveEngine.preGenerate(state.novelId, state.timelineId, state.mcUid, mcName, genre, parsed.choices, 600, 0.7).catch(() => {});
-      }
-      return 'decision';
-    }
-
-    dispatch({ type: 'SET_INTERACTION', mode: 'roleplay' });
-    return 'roleplay';
-  };
-
-  const handleAction = useCallback(async (action: string) => {
-    if (state.isGenerating || !state.novelId || !novel) return;
-    dispatch({ type: 'SET_GENERATING', val: true });
-    dispatch({ type: 'SET_INTERACTION', mode: 'passive' });
-    try { localStorage.removeItem(`eden_last_choices_${novelId}`); } catch {}
-
-    // Check if this action came from a choice button with roleplay text
-    const mappedChoice = choiceMapRef.current[action];
-    const displayAction = mappedChoice?.roleplayText || action;
-
-    if (state.interactionMode !== 'cinematic') {
-      addBubble({ content: displayAction, isUser: true, speaker: novel.mc_name });
-    }
-
-    // Story drift detection: if this is a custom text (not a mapped choice), check if off-topic
-    let isCustomAction = !mappedChoice && !action.startsWith('[');
-    if (isCustomAction && action.length < 5) {
-      // Very short/nonsense input counts as off-topic
-      offTopicRef.current += 1;
-    } else {
-      offTopicRef.current = Math.max(0, offTopicRef.current - 1);
-    }
-
-    let fullText = '';
-    const prevChoices = state.choices; // capture previous choices before async call
-
-    // Fast path: serve pre-generated scene from cache if available.
-    // applyParsedEffects is called so tag-driven mutations (level-up, memory, inventory,
-    // character creation, world-state) are identical to the normal generation path.
-    const cached = predictiveEngine.consume(action);
-    if (cached) {
-      fullText = cached;
-      dispatch({ type: 'UPDATE_STREAMING', text: fullText });
-      await applyParsedEffects(
-        novelId,
-        state.timelineId,
-        state.mcUid,
-        novel.mc_name,
-        state.genre,
-        fullText,
-        {
-          onToken: () => {},
-          onTagsParsed: () => {},
-          onLevelUp: (result) => {
-            dispatch({ type: 'SET_LEVEL_UP', result });
-            reloadProgression(novelId, state.mcUid);
-          },
-          onChapterEnd: async () => {
-            dispatch({ type: 'SET_CHAPTER', n: state.currentChapter + 1 });
-            dispatch({ type: 'SET_ACTION_COUNT', n: 0 });
-            await resetActionCount(novelId);
-          },
-          onPilotPause: (reason) => dispatch({ type: 'PILOT_PAUSE', reason }),
-          onNewCharacter: () => {},
-          onSkillUnlock: (skill) => dispatch({ type: 'ADD_SKILL_UNLOCK', skill }),
-          onError: (e) => dispatch({ type: 'SET_ERROR', err: e }),
-        }
-      );
-    } else {
-    await generateNextScene(
-      novelId,
-      state.timelineId,
-      state.mcUid,
-      novel.mc_name,
-      state.genre,
-      action,
-      {
-        onToken: (t) => { fullText += t; dispatch({ type: 'UPDATE_STREAMING', text: fullText }); },
-        onTagsParsed: () => {},
-        onLevelUp: (result) => {
-          dispatch({ type: 'SET_LEVEL_UP', result });
-          reloadProgression(novelId, state.mcUid);
+        type: 'PUSH_ITEM',
+        item: {
+          kind: 'environment',
+          location: ws.current_location,
+          timeOfDay: ws.time_of_day,
+          weather: ws.weather,
+          genre: ws.genre,
+          id: itemId(),
         },
-        onChapterEnd: async () => {
-          dispatch({ type: 'SET_CHAPTER', n: state.currentChapter + 1 });
-          dispatch({ type: 'SET_ACTION_COUNT', n: 0 });
-          await resetActionCount(novelId);
-        },
-        onPilotPause: (reason) => dispatch({ type: 'PILOT_PAUSE', reason }),
-        onNewCharacter: () => {},
-        onSkillUnlock: (skill) => dispatch({ type: 'ADD_SKILL_UNLOCK', skill }),
-        onError: (e) => dispatch({ type: 'SET_ERROR', err: e }),
-        onScenePlan: (plan) => setLastScenePlan(plan),
-      },
-      600,
-      0.7,
-      offTopicRef.current,
-      prevChoices
-    );
-    } // end else (no predictive cache)
+      })
 
-    dispatch({ type: 'FINISH_STREAMING' });
-    const mode = await processParsedOutput(fullText, state.genre, novel.mc_name);
+      // Generate opening
+      await generateOpening(novelId, characters)
+    })()
+    return () => { dispatch({ type: 'RESET' }) }
+  }, [novelId])
 
-    // Trigger adaptive audio based on the scene content
-    const hasCombat = /\b(attack|battle|fight|combat|sword|slash|dodge|parry|kill)\b/i.test(fullText);
-    const isLevelUp = /\b(level up|leveled up|rank up|breakthrough|advanced to)\b/i.test(fullText);
-    orchestrateScene({
-      genre: state.genre,
-      locationName: state.currentLocation,
-      tensionLevel: state.actionCount > 15 ? 'high' : state.actionCount > 8 ? 'medium' : 'low',
-      hasCombat,
-      isLevelUp,
-    });
-
-    // Persist scene to IndexedDB (source of truth)
-    await saveSceneToDB(fullText, bubblesRef.current, mode);
-
-    // Increment action count
-    const newCount = await incrementActionCount(novelId);
-    dispatch({ type: 'INCREMENT_ACTION' });
-
-    // Check if a minigame should trigger
-    const mgType = shouldTriggerMinigame(state.genre, fullText, newCount);
-    if (mgType) setActiveMinigame(mgType);
-
-    if (newCount >= settings.autoChapterEvery) {
-      try {
-        const completedChapter = state.currentChapter;
-        const { newChapterId, title: closedTitle } = await closeChapterAndBeginNext(novelId, state.timelineId);
-        const nextChapter = completedChapter + 1;
-        dispatch({ type: 'SET_CHAPTER', n: nextChapter });
-        dispatch({ type: 'RESET_ACTION_COUNT' });
-        await resetActionCount(novelId);
-        addBubble({
-          content: '',
-          isChapterTransition: true,
-          chapterTransitionData: {
-            completedChapter,
-            newChapter: nextChapter,
-            newChapterId,
-            title: closedTitle,
-          },
-        });
-        // Gate all interaction until user explicitly presses Next Chapter
-        dispatch({ type: 'SET_INTERACTION', mode: 'passive' });
-        await saveSceneToDB('', bubblesRef.current, 'roleplay');
-      } catch {}
+  // ── Scroll to bottom ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (atBottom) {
+      chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' })
+    } else {
+      setShowPill(true)
     }
+  }, [state.chatItems])
 
-    dispatch({ type: 'SET_GENERATING', val: false });
+  function handleScroll() {
+    const el = chatRef.current
+    if (!el) return
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    setAtBottom(isNearBottom)
+    if (isNearBottom) setShowPill(false)
+  }
 
-    // Persist bubbles to both IndexedDB scenes and localStorage fallback
-    setTimeout(() => saveBubblesToStorage(bubblesRef.current), 300);
+  function scrollToBottom() {
+    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' })
+    setAtBottom(true)
+    setShowPill(false)
+  }
 
-    const pilotDelayMs = { sensitive: 2000, normal: 3000, relaxed: 5000 }[settings.pilotSensitivity] ?? 3000;
-    if (state.pilotMode && !state.pilotPaused) {
-      if (mode === 'decision' || mode === 'roleplay' || mode === 'none') {
-        pilotTimerRef.current = setTimeout(() => runPilotDecision(), pilotDelayMs);
-      }
-    }
-  }, [state, settings, novelId, novel]);
+  // ── Generate opening ─────────────────────────────────────────────────────
+  async function generateOpening(nId: number, chars: Character[]) {
+    const streamId = itemId()
+    dispatch({ type: 'PUSH_ITEM', item: { kind: 'streaming', content: '', id: streamId } })
+    dispatch({ type: 'SET_GENERATING', value: true })
+    dispatch({ type: 'SET_STREAMING_ID', id: streamId })
+    dispatch({ type: 'SET_INTERACTION_MODE', mode: 'generating' })
+    streamBuffer.current = ''
+    setAtBottom(true)
 
-  const handleNextChapterStart = useCallback((transitionBubbleId: string) => {
-    dispatch({ type: 'REMOVE_BUBBLE', id: transitionBubbleId });
-    handleAction('[chapter_start]');
-  }, [dispatch, handleAction]);
+    const fullText = await adapter.generateOpeningStream(nId, token => {
+      streamBuffer.current += token
+      dispatch({ type: 'UPDATE_STREAMING', id: streamId, content: streamBuffer.current })
+    })
 
-  const pilotDelayMs = { sensitive: 2000, normal: 3000, relaxed: 5000 }[settings.pilotSensitivity] ?? 3000;
+    finishStream(streamId, fullText, chars)
+  }
 
-  const runPilotDecision = useCallback(async () => {
-    if (!state.pilotMode || state.pilotPaused || state.isGenerating) return;
+  // ── Finish streaming: parse + replace ────────────────────────────────────
+  function finishStream(streamId: string, fullText: string, chars: Character[]) {
+    const aliveNames = chars.filter(c => c.status === 'alive').map(c => c.display_name)
+    const bubbles    = parseBubbles(fullText, aliveNames)
+    const choices    = parseChoicesFromScene(fullText)
 
-    if (state.interactionMode === 'passive' || state.choices.length === 0) {
-      const action = generatePilotRoleplayAction(state.genre);
-      handleAction(action);
-      return;
-    }
+    const items: ChatItem[] = bubbles.map(b => ({
+      kind: 'bubble' as const,
+      bubble: b,
+      id: itemId(),
+      character: chars.find(c => c.display_name === b.speaker),
+    }))
 
-    const ws = await loadWorldState(novelId);
-    const idx = await makePilotDecision(state.choices, {
-      genre: state.genre,
-      currentArc: state.currentArc,
-      emotionalState: (ws as any).emotional_state ?? 'neutral',
-      recentScenes: state.bubbles.slice(-3).map(b => b.content).join('\n'),
-      mcTraits: novel?.mc_traits_json ?? '',
+    dispatch({ type: 'REPLACE_STREAMING', id: streamId, items })
+    dispatch({ type: 'SET_CHOICES', choices })
+    dispatch({ type: 'SET_GENERATING', value: false })
+    dispatch({ type: 'SET_INTERACTION_MODE', mode: choices.length > 0 ? 'decision' : 'free' })
+    setAtBottom(true)
+  }
+
+  // ── Handle choice selection ──────────────────────────────────────────────
+  const handleChoice = useCallback(async (choiceIdx: number) => {
+    if (state.interactionMode === 'generating') return
+    const choice = state.choices[choiceIdx]
+    if (!choice) return
+
+    // MC echo bubble
+    const echoContent = choice.roleplayText ?? choice.label
+    dispatch({
+      type: 'PUSH_ITEM',
+      item: { kind: 'mc-echo', content: echoContent, id: itemId() },
+    })
+    dispatch({ type: 'SET_CHOICES', choices: [] })
+
+    await runScene(choice.label)
+  }, [state.choices, state.interactionMode])
+
+  // ── Handle custom action ─────────────────────────────────────────────────
+  const handleCustomAction = useCallback(async (text: string) => {
+    if (state.interactionMode === 'generating') return
+    dispatch({
+      type: 'PUSH_ITEM',
+      item: { kind: 'mc-echo', content: text, id: itemId() },
+    })
+    dispatch({ type: 'SET_CHOICES', choices: [] })
+    await runScene(text)
+  }, [state.interactionMode])
+
+  // ── Core scene runner ────────────────────────────────────────────────────
+  async function runScene(userAction: string) {
+    dispatch({ type: 'SET_INTERACTION_MODE', mode: 'generating' })
+    dispatch({ type: 'SET_GENERATING', value: true })
+    setAtBottom(true)
+
+    const streamId = itemId()
+    dispatch({ type: 'PUSH_ITEM', item: { kind: 'streaming', content: '', id: streamId } })
+    dispatch({ type: 'SET_STREAMING_ID', id: streamId })
+    streamBuffer.current = ''
+
+    const fullText = await adapter.generateNextSceneStream({
       novelId,
-    });
-    const chosen = state.choices[idx];
-    if (chosen) handleAction(chosen);
-  }, [state, handleAction, novelId, settings.pilotSensitivity]);
+      userAction,
+      onToken: token => {
+        streamBuffer.current += token
+        dispatch({ type: 'UPDATE_STREAMING', id: streamId, content: streamBuffer.current })
+      },
+      onScenePlan: plan => dispatch({ type: 'SET_SCENE_PLAN', plan }),
+    })
 
-  // Pilot: decision mode auto-advance
+    // Refresh after scene
+    const { tension, characters, ws } = await adapter.refreshAfterScene(novelId)
+    dispatch({ type: 'SET_CHARACTERS', characters })
+    dispatch({ type: 'SET_WORLD_STATE', ws })
+    finishStream(streamId, fullText, characters)
+  }
+
+  // ── Auto-pilot ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!state.pilotMode || state.isGenerating || state.pilotPaused) return;
-    if (state.interactionMode !== 'decision' || state.choices.length === 0) return;
-    pilotTimerRef.current = setTimeout(runPilotDecision, pilotDelayMs);
-    return () => { if (pilotTimerRef.current) clearTimeout(pilotTimerRef.current); };
-  }, [state.pilotMode, state.isGenerating, state.pilotPaused, state.interactionMode, state.choices, pilotDelayMs]);
+    if (!appState.autoPilot || state.interactionMode !== 'decision' || state.choices.length === 0) return
+    autoPilotTimer.current = setTimeout(() => {
+      const idx = Math.floor(Math.random() * state.choices.length)
+      handleChoice(idx)
+    }, 2000)
+    return () => clearTimeout(autoPilotTimer.current)
+  }, [appState.autoPilot, state.interactionMode, state.choices])
 
-  // Pilot: cinematic mode auto-advance (tap to continue)
-  useEffect(() => {
-    if (!state.pilotMode || state.isGenerating || state.pilotPaused) return;
-    if (state.interactionMode !== 'cinematic') return;
-    const t = setTimeout(() => handleAction('[continue]'), pilotDelayMs);
-    return () => clearTimeout(t);
-  }, [state.pilotMode, state.isGenerating, state.pilotPaused, state.interactionMode, pilotDelayMs]);
+  // ── Tension from worldState ──────────────────────────────────────────────
+  const tension = state.worldState?.narrative_tension ?? 0
 
-  // Pilot: chapter transition auto-click Next Chapter
-  useEffect(() => {
-    if (!state.pilotMode || state.isGenerating || state.pilotPaused) return;
-    const chapterBubble = state.bubbles.find(b => b.isChapterTransition);
-    if (!chapterBubble) return;
-    const t = setTimeout(() => handleNextChapterStart(chapterBubble.id), pilotDelayMs);
-    return () => clearTimeout(t);
-  }, [state.pilotMode, state.isGenerating, state.pilotPaused, state.bubbles, pilotDelayMs]);
+  // ── Panel icons ──────────────────────────────────────────────────────────
+  const PANEL_ICONS = [
+    { id: 'characters', Icon: Users,        title: 'Characters' },
+    { id: 'stats',      Icon: BarChart2,     title: 'Status' },
+    { id: 'world',      Icon: Globe,         title: 'World' },
+    { id: 'inventory',  Icon: Package,       title: 'Inventory' },
+    { id: 'eden',       Icon: MessageSquare, title: 'Ask Eden' },
+  ]
 
-  const handleChoiceSelect = (choice: string) => {
-    // handleAction reads choiceMapRef internally for roleplay text display.
-    // Do NOT addBubble here — that causes double messages.
-    handleAction(choice);
-  };
-
-  const handleCinematicTap = () => { if (!state.isGenerating) handleAction('[continue]'); };
-
-  const chapterLabel = novel ? `Ch.${state.currentChapter} — ${state.currentArc || novel.title}` : 'Loading…';
-
-  // Nav tabs: 5 items — Story, Characters, Status, World, Items
-  const navItems = [
-    { key: 'story', icon: <BookOpen size={18} />, label: 'Story' },
-    { key: 'characters', icon: <Users size={18} />, label: 'Characters' },
-    { key: 'status', icon: <BarChart2 size={18} />, label: 'Status' },
-    { key: 'world', icon: <Globe size={18} />, label: 'World' },
-    { key: 'inventory', icon: <Package size={18} />, label: 'Items' },
-  ] as const;
-
-  const handleMinigameComplete = useCallback(async (result: MinigameResult) => {
-    setActiveMinigame(null);
-    addBubble({ content: result.outcomeText, isNarrator: true });
-
-    // Apply stat effects to progression record
-    if (state.mcUid && Object.keys(result.statEffects).length > 0) {
-      try {
-        const prog = await getProgression(novelId, state.mcUid);
-        if (prog?.id) {
-          let stats: Record<string, number> = {};
-          try { stats = JSON.parse(prog.stats_json); } catch {}
-          for (const [key, delta] of Object.entries(result.statEffects)) {
-            stats[key] = (stats[key] ?? 0) + delta;
-          }
-          await updateProgression(prog.id, { stats_json: JSON.stringify(stats) });
-        }
-      } catch {}
-    }
-
-    // Apply inventory changes
-    if (state.mcUid) {
-      for (const { item, qty } of result.inventoryChanges) {
-        try {
-          if (qty > 0) await addItem(novelId, state.mcUid, item, qty);
-          else if (qty < 0) await removeItem(novelId, state.mcUid, item, Math.abs(qty));
-        } catch {}
-      }
-    }
-
-    // Apply relationship changes as additive deltas
-    if (state.mcUid) {
-      for (const { uid, delta } of result.relationshipChanges) {
-        try {
-          await applyRelationshipDelta(novelId, state.mcUid, uid, delta);
-        } catch {}
-      }
-    }
-  }, [addBubble, novelId, state.mcUid]);
+  if (!match) return null
 
   return (
-    <div className="h-dvh flex flex-col bg-[#080810] overflow-hidden">
-      {/* TOP BAR */}
-      <div className="flex items-center justify-between px-3 py-3 border-b border-gray-800/60 shrink-0">
-        <button onClick={() => navigate('/novels')} className="text-gray-400 hover:text-white p-1">
-          <ArrowLeft size={20} />
-        </button>
-        <div className="flex-1 text-center">
-          <p className="text-white font-semibold text-sm truncate px-2">{chapterLabel}</p>
-          {state.currentLocation && <p className="text-gray-500 text-xs">{state.currentLocation}</p>}
-        </div>
-        <div className="flex items-center gap-1">
-          {companionNarratorService.getSettings().enabled && (
-            <button
-              onClick={() => companionNarratorService.togglePlayPause()}
-              title={narratorPlaying ? 'Pause narrator' : 'Resume narrator'}
-              className={`p-1.5 rounded-lg transition-all ${narratorPlaying ? 'text-amber-400 bg-amber-900/30' : 'text-gray-600 hover:text-gray-300'}`}
-            >
-              {narratorPlaying ? <VolumeX size={15} /> : <Volume2 size={15} />}
-            </button>
-          )}
-          <button
-            onClick={() => dispatch({ type: 'SET_PILOT', val: !state.pilotMode })}
-            className={`p-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${state.pilotMode ? 'bg-blue-700/40 text-blue-300' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            {state.pilotMode ? <Pause size={14} /> : <Play size={14} />}
-            <span className="text-xs">{state.pilotMode ? 'AUTO' : 'Auto'}</span>
-          </button>
-        </div>
-      </div>
+    <div className="eden-gradient-bg h-dvh flex flex-col overflow-hidden">
+      <div className="noise-overlay" />
 
-      {/* v5: Narrative tension bar (only visible when tension > 40) */}
-      {narrativeTension > 40 && (
-        <div
-          className="h-[3px] bg-transparent shrink-0"
-          aria-hidden="true"
-          onClick={() => {
-            const now = Date.now();
-            const recent = devTapTimes.current.filter(t => now - t < 600);
-            recent.push(now);
-            devTapTimes.current = recent;
-            if (recent.length >= 3 && (import.meta as any).env?.DEV) {
-              setShowSceneDevPanel(v => !v);
-              devTapTimes.current = [];
-            }
-          }}
-        >
-          <motion.div
-            className="h-full"
-            style={{
-              background:
-                narrativeTension > 80
-                  ? 'linear-gradient(90deg, #f87171, #ef4444)'
-                  : narrativeTension > 60
-                  ? 'linear-gradient(90deg, #fb923c, #f97316)'
-                  : 'linear-gradient(90deg, #fbbf24, #f59e0b)',
-            }}
-            initial={{ width: 0 }}
-            animate={{ width: `${narrativeTension}%` }}
-            transition={{ duration: 0.7 }}
-          />
-        </div>
-      )}
-
-      {/* v5: Scene plan dev panel (DEV only, toggled by triple-tap on tension bar) */}
-      {showSceneDevPanel && lastScenePlan && (import.meta as any).env?.DEV && (
-        <div className="fixed bottom-3 left-3 z-50 max-w-xs p-3 rounded-xl bg-black/80 border border-gray-700 backdrop-blur-sm text-[11px] text-gray-300 space-y-1 shadow-2xl">
-          <div className="flex items-center justify-between mb-1">
-            <span className="font-bold text-purple-300 uppercase tracking-wide text-[10px]">Scene Plan</span>
-            <button onClick={() => setShowSceneDevPanel(false)} className="text-gray-500 hover:text-white">×</button>
-          </div>
-          <div><span className="text-gray-500">Type:</span> <span className="text-white">{lastScenePlan.scene_type}</span></div>
-          <div><span className="text-gray-500">Tension target:</span> {lastScenePlan.tension_target}/100 (now {narrativeTension})</div>
-          <div className="leading-snug"><span className="text-gray-500">Directive:</span> {lastScenePlan.directive}</div>
-          {lastScenePlan.npc_focus && (
-            <div><span className="text-gray-500">Focus NPC:</span> {lastScenePlan.npc_focus}</div>
-          )}
-          {Array.isArray(lastScenePlan.required_elements) && lastScenePlan.required_elements.length > 0 && (
-            <div className="leading-snug">
-              <span className="text-gray-500">Must include:</span>
-              <ul className="list-disc list-inside text-amber-200">
-                {lastScenePlan.required_elements.map((r: string, i: number) => <li key={i}>{r}</li>)}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* PILOT PAUSE BANNER */}
-      <AnimatePresence>
-        {state.pilotPaused && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            className="bg-yellow-900/30 border-b border-yellow-800/50 px-4 py-2 flex items-center justify-between"
-          >
-            <p className="text-yellow-300 text-xs">{PILOT_PAUSE_REASONS[state.pilotPauseReason] ?? 'Pilot paused'}</p>
-            <button onClick={() => dispatch({ type: 'PILOT_RESUME' })} className="text-xs text-yellow-400 font-semibold underline">Resume</button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* STREAMING BAR */}
-      <AnimatePresence>
-        {state.isGenerating && state.streamingText && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="px-4 py-2 bg-gray-900/80 border-b border-gray-800 text-xs text-gray-400 italic line-clamp-2"
-          >
-            {state.streamingText.slice(-120)}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* SKILL UNLOCK TOAST */}
-      <AnimatePresence>
-        {state.pendingSkillUnlocks.length > 0 && (
-          <motion.div
-            initial={{ y: -40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -40, opacity: 0 }}
-            className="mx-4 mt-2 bg-purple-900/80 border border-purple-600/50 rounded-xl px-4 py-2 flex items-center justify-between"
-          >
-            <p className="text-purple-200 text-xs font-semibold">✦ Skill Unlocked: {state.pendingSkillUnlocks[0]}</p>
-            <button onClick={() => dispatch({ type: 'CLEAR_SKILL_UNLOCKS' })} className="text-purple-400 text-xs">✕</button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ERROR BANNER */}
-      <AnimatePresence>
-        {state.error && (
-          <motion.div
-            initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}
-            className="bg-red-900/30 border-b border-red-800/50 px-4 py-2 flex items-center justify-between"
-          >
-            <p className="text-red-300 text-xs">{state.error}</p>
-            <button onClick={() => dispatch({ type: 'SET_ERROR', err: null })} className="text-red-400 text-xs">✕</button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* NOVA TTS — STOP / RESUME */}
-      <AnimatePresence>
-        {provider === 'nova' && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="flex justify-center items-center py-1.5 border-b border-white/10 bg-rose-950/20 shrink-0"
-          >
-            <button
-              onClick={() => {
-                if (ttsPaused) {
-                  novaSonicService.resume();
-                  setTtsPaused(false);
-                } else {
-                  novaSonicService.stop();
-                  setTtsPaused(true);
-                }
-              }}
-              className="flex items-center gap-2 px-4 py-1 rounded-full text-xs font-medium
-                         bg-white/10 hover:bg-white/20 transition-colors border border-white/20 text-rose-200"
-            >
-              {ttsPaused ? <>▶ Resume Reading</> : <>⏸ Stop Reading</>}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* BUBBLE SCROLL AREA */}
+      {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-2 py-3 space-y-1 no-scrollbar"
-        onClick={state.interactionMode === 'cinematic' ? handleCinematicTap : undefined}
+        className="relative z-20 flex items-center gap-3 px-4 pt-safe"
+        style={{
+          background: 'rgba(10,10,15,0.9)',
+          backdropFilter: 'blur(16px)',
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          minHeight: 52,
+        }}
       >
-        {state.bubbles.map(b => {
-          if (b.isChapterTransition && b.chapterTransitionData) {
-            return (
-              <ChapterTransitionCard
-                key={b.id}
-                data={b.chapterTransitionData}
-                onAskEden={() => setPanel('eden')}
-                onNext={() => handleNextChapterStart(b.id)}
-                onPrevChapter={b.chapterTransitionData.completedChapter > 1 ? () => navigate(`/chapters/${novelId}`) : undefined}
-              />
-            );
-          }
-          if (b.isEnvironment) return <EnvironmentBubble key={b.id} locationName={b.content} imageUrl={b.environmentImageUrl} />;
-          if (b.isNarrator) return <NarratorBubble key={b.id} content={b.content} isStreaming={b.isStreaming} textSize={settings.textSize} />;
-          if (b.isUser) return (
-            <MessageBubble key={b.id} content={b.content} isUser speaker={novel?.mc_name} mcPortraitPath={novel?.mc_portrait_path || undefined} textSize={settings.textSize} />
-          );
-          return <MessageBubble key={b.id} speaker={b.speaker} content={b.content} bubbleColor={b.bubbleColor} textSize={settings.textSize} />;
-        })}
-        {(state.isShowingTyping || (state.isGenerating && !state.streamingText)) && <TypingIndicator />}
-      </div>
+        <button
+          onClick={() => navigate('/novels')}
+          className="w-8 h-8 rounded-xl flex items-center justify-center text-[#7a7a8c] hover:text-[#e6e6f0] transition-colors shrink-0"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
 
-      {/* INTERACTION AREA */}
-      <div className="shrink-0 border-t border-gray-800/60">
-        {state.interactionMode === 'cinematic' && !state.isGenerating && (
-          <div className="px-4 py-3 text-center text-gray-600 text-xs italic">Tap anywhere to continue</div>
-        )}
+        <div className="flex-1 min-w-0 text-center">
+          <p className="text-[11px] font-mono-eden uppercase tracking-widest text-[#7a7a8c]">
+            Ch.{state.worldState?.current_chapter ?? 1}
+          </p>
+          <h2 className="text-[13px] font-medium text-[#e6e6f0] truncate">
+            {state.novel?.title ?? '…'}
+          </h2>
+        </div>
 
-        {!state.isGenerating && state.interactionMode !== 'cinematic' && (
-          <motion.div
-            initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
-            className="px-3 py-3 space-y-2"
-          >
-            {state.interactionMode === 'decision' && state.choices.length > 0 && (
-              <motion.div
-                initial={{ y: 30, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ type: 'spring', stiffness: 380, damping: 28 }}
-                className="space-y-2 max-h-52 overflow-y-auto"
-              >
-                {state.choices.map((c, i) => {
-                  const mapped = choiceMapRef.current[c];
-                  return (
-                    <ChoiceButton
-                      key={i}
-                      text={c}
-                      roleplayText={mapped?.roleplayText}
-                      index={i}
-                      onClick={() => handleChoiceSelect(c)}
-                      disabled={false}
-                    />
-                  );
-                })}
-              </motion.div>
-            )}
-            <CustomActionInput
-              onSubmit={handleAction}
-              disabled={false}
-              placeholder={state.interactionMode === 'decision' && state.choices.length > 0 ? 'Or write your own action…' : 'What do you do?'}
-            />
-          </motion.div>
-        )}
-
-        {state.isGenerating && (
-          <div className="px-4 py-3 flex items-center gap-2 text-gray-500 text-xs">
-            <div className="w-3 h-3 border border-blue-500 border-t-transparent rounded-full animate-spin" />
-            Generating…
-          </div>
-        )}
-      </div>
-
-      {/* BOTTOM NAV TABS */}
-      <div className="flex border-t border-gray-800/60 bg-[#0a0a14] shrink-0">
-        {navItems.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => {
-              if (tab.key === 'story') { setPanel(null); return; }
-              setPanel(panel === tab.key ? null : tab.key as Panel);
-            }}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] xs:text-xs transition-colors ${panel === tab.key ? 'text-blue-400' : 'text-gray-600 hover:text-gray-400'}`}
-          >
-            {tab.icon}
-            <span className="hidden sm:inline">{tab.label}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Settings */}
+          <button className="w-8 h-8 rounded-xl flex items-center justify-center text-[#7a7a8c] hover:text-[#e6e6f0] transition-colors">
+            <Settings className="w-3.5 h-3.5" />
           </button>
-        ))}
+
+          {/* Auto-pilot toggle */}
+          <motion.button
+            className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+            style={{
+              background: appState.autoPilot ? 'rgba(99,102,241,0.2)' : 'transparent',
+              color: appState.autoPilot ? '#818cf8' : '#7a7a8c',
+              boxShadow: appState.autoPilot ? '0 0 12px rgba(99,102,241,0.3)' : 'none',
+            }}
+            onClick={() => appDispatch({ type: 'SET_AUTOPILOT', value: !appState.autoPilot })}
+            whileTap={{ scale: 0.9 }}
+            title="Auto-pilot"
+          >
+            {appState.autoPilot ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </motion.button>
+        </div>
       </div>
 
-      {/* PANELS */}
-      <CharacterPanel open={panel === 'characters'} onClose={() => setPanel(null)} novelId={novelId} />
-      <StatusPanel
-        open={panel === 'status'}
-        onClose={() => setPanel(null)}
-        genre={state.genre}
-        novelId={novelId}
-        mcUid={state.mcUid}
-        onOpenSkillTree={() => { setPanel(null); setShowSkillTree(true); }}
-      />
-      <WorldPanel open={panel === 'world'} onClose={() => setPanel(null)} novelId={novelId} />
-      <AskEdenPanel open={panel === 'eden'} onClose={() => setPanel(null)} novelId={novelId} timelineId={state.timelineId} />
-      <InventoryPanel open={panel === 'inventory'} onClose={() => setPanel(null)} novelId={novelId} mcUid={state.mcUid} />
+      {/* ── Tension bar ────────────────────────────────────────────────── */}
+      <div className="relative z-20">
+        <TensionBar
+          tension={tension}
+          scenePlan={state.scenePlan}
+          isDev={appState.isDev}
+        />
+      </div>
 
-      {/* SKILL TREE OVERLAY */}
-      <SkillTreeOverlay open={showSkillTree} onClose={() => setShowSkillTree(false)} skills={progressionSkills} genre={state.genre} />
+      {/* ── Main layout: chat + side rail ────────────────────────────── */}
+      <div className="flex flex-1 min-h-0 relative">
 
-      {/* LEVEL UP OVERLAY */}
-      <AnimatePresence>
-        {state.pendingLevelUp && (
-          <LevelUpOverlay
-            result={state.pendingLevelUp}
-            novelId={novelId}
-            mcUid={state.mcUid}
-            genre={state.genre}
-            onDone={() => dispatch({ type: 'SET_LEVEL_UP', result: null })}
+        {/* ── Chat scroll area ─────────────────────────────────────────── */}
+        <div
+          ref={chatRef}
+          className="flex-1 chat-scroll chat-fade-mask overflow-y-auto"
+          style={{ paddingBottom: 0 }}
+          onScroll={handleScroll}
+        >
+          <div className="px-4 py-4 space-y-4 min-h-full">
+            <AnimatePresence mode="popLayout">
+              {state.chatItems.map((item, idx) => {
+                const delay = Math.min((idx * 0.08), 0.4)
+
+                switch (item.kind) {
+                  case 'environment':
+                    return (
+                      <motion.div key={item.id} layout>
+                        <EnvironmentBubble
+                          location={item.location}
+                          timeOfDay={item.timeOfDay}
+                          weather={item.weather}
+                          genre={item.genre}
+                        />
+                      </motion.div>
+                    )
+
+                  case 'chapter':
+                    return (
+                      <motion.div key={item.id} layout>
+                        <ChapterTransitionCard chapter={item.chapter} title={item.title} />
+                      </motion.div>
+                    )
+
+                  case 'bubble':
+                    if (item.bubble.isNarrator) {
+                      return (
+                        <motion.div key={item.id} layout>
+                          <NarratorBubble content={item.bubble.content} delay={delay} />
+                        </motion.div>
+                      )
+                    }
+                    return (
+                      <motion.div key={item.id} layout>
+                        <MessageBubble
+                          speaker={item.bubble.speaker ?? 'Unknown'}
+                          content={item.bubble.content}
+                          character={item.character}
+                          delay={delay}
+                        />
+                      </motion.div>
+                    )
+
+                  case 'streaming':
+                    return (
+                      <motion.div key={item.id} layout className="space-y-3">
+                        {item.content ? (
+                          <div className="space-y-3">
+                            {item.content.split('\n').filter(Boolean).map((line, li) => (
+                              <NarratorBubble key={li} content={line} delay={li * 0.05} />
+                            ))}
+                          </div>
+                        ) : (
+                          <TypingIndicator />
+                        )}
+                      </motion.div>
+                    )
+
+                  case 'mc-echo':
+                    return (
+                      <motion.div key={item.id} layout>
+                        <MCEchoBubble content={item.content} />
+                      </motion.div>
+                    )
+
+                  default:
+                    return null
+                }
+              })}
+            </AnimatePresence>
+
+            {/* Typing indicator while generating */}
+            <AnimatePresence>
+              {state.isGenerating && !state.streamingId && (
+                <motion.div
+                  key="typing"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <TypingIndicator />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Bottom padding for choice rail */}
+            <div className="h-2" />
+          </div>
+        </div>
+
+        {/* ── Side panel icon rail ──────────────────────────────────────── */}
+        <div className="hidden md:flex flex-col items-center gap-1 px-1.5 py-4 border-l border-white/05" style={{ background: 'rgba(10,10,15,0.6)' }}>
+          {PANEL_ICONS.map(({ id, Icon, title }) => (
+            <button
+              key={id}
+              onClick={() => setActivePanel(p => p === id ? null : id)}
+              title={title}
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+              style={{
+                background: activePanel === id ? 'rgba(99,102,241,0.2)' : 'transparent',
+                color: activePanel === id ? '#818cf8' : '#7a7a8c',
+              }}
+            >
+              <Icon className="w-4 h-4" />
+            </button>
+          ))}
+        </div>
+
+        {/* ── Scroll-to-bottom pill ──────────────────────────────────── */}
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+          <ScrollToBottomPill visible={showPill} onClick={scrollToBottom} />
+        </div>
+      </div>
+
+      {/* ── Bottom area: choices + input ────────────────────────────── */}
+      <div
+        className="relative z-20 border-t border-white/05 pb-safe"
+        style={{ background: 'rgba(10,10,15,0.92)', backdropFilter: 'blur(20px)' }}
+      >
+        {/* Choice rail */}
+        <AnimatePresence>
+          {state.interactionMode === 'decision' && state.choices.length > 0 && (
+            <motion.div
+              className="px-4 pt-3 space-y-2"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.25 }}
+            >
+              {state.choices.map((choice, i) => (
+                <ChoiceButton
+                  key={i}
+                  text={choice.label}
+                  roleplayText={choice.roleplayText}
+                  index={i}
+                  onClick={() => handleChoice(i)}
+                  disabled={state.isGenerating}
+                />
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Custom action input */}
+        <div className="px-4 py-3">
+          <CustomActionInput
+            onSubmit={handleCustomAction}
+            isGenerating={state.isGenerating}
+            disabled={false}
           />
-        )}
-      </AnimatePresence>
+        </div>
 
-      <LoadingOverlay visible={!initialized} message={loadingMsg} />
+        {/* Mobile panel icons */}
+        <div className="flex justify-around items-center pb-3 px-4 md:hidden">
+          {PANEL_ICONS.map(({ id, Icon, title }) => (
+            <button
+              key={id}
+              onClick={() => setActivePanel(p => p === id ? null : id)}
+              title={title}
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+              style={{
+                background: activePanel === id ? 'rgba(99,102,241,0.2)' : 'transparent',
+                color: activePanel === id ? '#818cf8' : '#7a7a8c',
+              }}
+            >
+              <Icon className="w-4 h-4" />
+            </button>
+          ))}
+        </div>
+      </div>
 
-      {/* MINIGAME OVERLAY */}
-      <AnimatePresence>
-        {activeMinigame && (
-          <MinigameWrapper
-            type={activeMinigame}
-            genre={state.genre}
-            onComplete={handleMinigameComplete}
-          />
-        )}
-      </AnimatePresence>
+      {/* ── Side panels ──────────────────────────────────────────────── */}
+      <AnimatedPanel
+        isOpen={activePanel === 'characters'}
+        onClose={() => setActivePanel(null)}
+        title="Characters"
+        side="bottom"
+      >
+        <CharacterPanel characters={state.characters} />
+      </AnimatedPanel>
+
+      <AnimatedPanel
+        isOpen={activePanel === 'stats'}
+        onClose={() => setActivePanel(null)}
+        title="Status"
+        side="bottom"
+      >
+        {state.novel && <StatusPanel novel={state.novel} tension={tension} />}
+      </AnimatedPanel>
+
+      <AnimatedPanel
+        isOpen={activePanel === 'world'}
+        onClose={() => setActivePanel(null)}
+        title="World"
+        side="bottom"
+      >
+        {state.worldState && <WorldPanel worldState={state.worldState} />}
+      </AnimatedPanel>
+
+      <AnimatedPanel
+        isOpen={activePanel === 'inventory'}
+        onClose={() => setActivePanel(null)}
+        title="Inventory"
+        side="bottom"
+      >
+        <InventoryPanel />
+      </AnimatedPanel>
+
+      <AnimatedPanel
+        isOpen={activePanel === 'eden'}
+        onClose={() => setActivePanel(null)}
+        title="Ask Eden"
+        side="bottom"
+      >
+        <AskEdenPanel />
+      </AnimatedPanel>
     </div>
-  );
+  )
 }

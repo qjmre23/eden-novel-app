@@ -1,51 +1,57 @@
-import React from 'react';
+import { motion } from 'framer-motion'
+import type { Character } from '../../types'
 
-interface Props {
-  speaker?: string;
-  content: string;
-  bubbleColor?: string;
-  isUser?: boolean;
-  isStreaming?: boolean;
-  textSize?: 'small' | 'medium' | 'large';
-  mcPortraitPath?: string;
+interface MessageBubbleProps {
+  speaker: string
+  content: string
+  character?: Character
+  delay?: number
 }
 
-const TEXT_SIZE = { small: 'text-xs', medium: 'text-sm', large: 'text-base' };
-const DEFAULT_ACCENT = '#4f8ef7';
+function AvatarInitial({ name, color }: { name: string; color: string }) {
+  return (
+    <div
+      className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-bold font-mono-eden border select-none"
+      style={{
+        backgroundColor: color + '22',
+        borderColor: color + '55',
+        color,
+      }}
+    >
+      {name[0]?.toUpperCase() ?? '?'}
+    </div>
+  )
+}
 
-export default function MessageBubble({ speaker, content, bubbleColor = DEFAULT_ACCENT, isUser = false, isStreaming = false, textSize = 'medium', mcPortraitPath }: Props) {
-  if (isUser) {
-    return (
-      <div className="flex justify-end items-start gap-2 mb-4 bubble-animate">
-        <div className="max-w-[80%] text-right">
-          <p className="text-xs font-semibold mb-1 text-blue-400">{speaker ?? 'You'}</p>
-          <p className={`text-blue-100 ${TEXT_SIZE[textSize]} leading-relaxed whitespace-pre-wrap`}>
-            {content}
-            {isStreaming && <span className="inline-block w-0.5 h-4 bg-blue-300 animate-pulse ml-0.5 -mb-1" />}
-          </p>
-        </div>
-        {mcPortraitPath ? (
-          <img src={mcPortraitPath} alt={speaker ?? 'MC'} className="w-8 h-8 rounded-full shrink-0 object-cover border border-blue-600/40 mt-0.5" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-        ) : (
-          <div className="w-8 h-8 rounded-full shrink-0 bg-blue-700/50 border border-blue-600/40 flex items-center justify-center mt-0.5">
-            <span className="text-blue-200 text-xs font-bold">{(speaker ?? 'Y')[0].toUpperCase()}</span>
-          </div>
-        )}
-      </div>
-    );
-  }
+export function MessageBubble({ speaker, content, character, delay = 0 }: MessageBubbleProps) {
+  const bubbleColor = character?.bubble_color ?? '#6366f1'
 
   return (
-    <div className="mb-4 bubble-animate pl-3" style={{ borderLeft: `2px solid ${bubbleColor}` }}>
-      {speaker && (
-        <p className="text-xs font-semibold mb-1" style={{ color: bubbleColor }}>
+    <motion.div
+      className="flex items-start gap-3 max-w-[88%]"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.32, delay, ease: [0.22, 1, 0.36, 1] }}
+    >
+      <AvatarInitial name={speaker} color={bubbleColor} />
+      <div className="flex flex-col gap-1 min-w-0">
+        <span
+          className="text-[11px] font-mono-eden tracking-wider uppercase opacity-70 ml-1"
+          style={{ color: bubbleColor }}
+        >
           {speaker}
-        </p>
-      )}
-      <p className={`text-gray-100 ${TEXT_SIZE[textSize]} leading-relaxed whitespace-pre-wrap`}>
-        {content}
-        {isStreaming && <span className="inline-block w-0.5 h-4 bg-gray-300 animate-pulse ml-0.5 -mb-1" />}
-      </p>
-    </div>
-  );
+        </span>
+        <div
+          className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-[14px] leading-6 text-[#e6e6f0]"
+          style={{
+            background: `linear-gradient(135deg, ${bubbleColor}18, ${bubbleColor}0c)`,
+            border: `1px solid ${bubbleColor}30`,
+            boxShadow: `0 2px 16px ${bubbleColor}18`,
+          }}
+        >
+          &ldquo;{content}&rdquo;
+        </div>
+      </div>
+    </motion.div>
+  )
 }

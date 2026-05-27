@@ -1,17 +1,37 @@
-import React from 'react';
+import { motion } from 'framer-motion'
 
-export default function TypingIndicator({ name }: { name?: string }) {
+export function TypingIndicator() {
   return (
-    <div className="flex items-end gap-2 mb-2 bubble-animate">
-      <div className="w-9 h-9 rounded-full bg-gray-800 shrink-0" />
-      <div className="flex flex-col gap-1">
-        {name && <span className="text-xs text-gray-500 px-1">{name}</span>}
-        <div className="bg-gray-800 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1.5 items-center">
-          <div className="typing-dot w-2 h-2 bg-gray-400 rounded-full" />
-          <div className="typing-dot w-2 h-2 bg-gray-400 rounded-full" />
-          <div className="typing-dot w-2 h-2 bg-gray-400 rounded-full" />
-        </div>
+    <motion.div
+      className="flex items-start gap-3"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 4 }}
+      transition={{ duration: 0.25 }}
+    >
+      {/* Avatar placeholder */}
+      <div className="w-8 h-8 shrink-0 rounded-full bg-white/05 border border-white/08 animate-pulse" />
+
+      {/* Dots */}
+      <div
+        className="flex items-center gap-1.5 px-4 py-3 rounded-2xl rounded-tl-sm"
+        style={{
+          background: 'rgba(26,26,38,0.8)',
+          border: '1px solid rgba(255,255,255,0.06)',
+        }}
+      >
+        {[0, 1, 2].map(i => (
+          <span
+            key={i}
+            className="w-1.5 h-1.5 rounded-full bg-indigo-400"
+            style={{
+              display: 'inline-block',
+              animation: `typing-dot 1.2s ease-in-out infinite`,
+              animationDelay: `${i * 0.18}s`,
+            }}
+          />
+        ))}
       </div>
-    </div>
-  );
+    </motion.div>
+  )
 }

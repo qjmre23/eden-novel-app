@@ -1,168 +1,143 @@
-import React, { createContext, useContext, useReducer } from 'react';
-import type { LevelUpResult } from '../services/progressionService';
-
-export interface Bubble {
-  id: string;
-  speaker?: string;
-  content: string;
-  isNarrator?: boolean;
-  isUser?: boolean;
-  isTyping?: boolean;
-  isStreaming?: boolean;
-  bubbleColor?: string;
-  isEnvironment?: boolean;
-  environmentImageUrl?: string | null;
-  isChapterTransition?: boolean;
-  chapterTransitionData?: {
-    completedChapter: number;
-    newChapter: number;
-    newChapterId: number;
-    title: string;
-  };
-  timestamp: number;
-}
+import { createContext, useContext, useReducer, ReactNode } from 'react'
+import type {
+  Novel,
+  Character,
+  WorldState,
+  ChoiceOption,
+  ChatItem,
+  InteractionMode,
+  ScenePlan,
+} from '../types'
 
 interface StoryState {
-  novelId: number | null;
-  mcUid: string;
-  genre: string;
-  timelineId: string;
-  bubbles: Bubble[];
-  interactionMode: 'cinematic' | 'decision' | 'roleplay' | 'passive';
-  choices: string[];
-  isGenerating: boolean;
-  isShowingTyping: boolean;
-  pilotMode: boolean;
-  pilotPaused: boolean;
-  pilotPauseReason: string;
-  pendingLevelUp: LevelUpResult | null;
-  pendingSkillUnlocks: string[];
-  currentChapter: number;
-  currentLocation: string;
-  currentArc: string;
-  streamingText: string;
-  error: string | null;
-  actionCount: number;
+  novel: Novel | null
+  characters: Character[]
+  worldState: WorldState | null
+  chatItems: ChatItem[]
+  choices: ChoiceOption[]
+  interactionMode: InteractionMode
+  isGenerating: boolean
+  scenePlan: ScenePlan | null
+  activePanel: string | null
+  streamingId: string | null
 }
 
 type StoryAction =
-  | { type: 'SET_NOVEL'; novelId: number; mcUid: string; genre: string; timelineId: string }
-  | { type: 'LOAD_BUBBLES'; bubbles: Bubble[] }
-  | { type: 'ADD_BUBBLE'; bubble: Bubble }
-  | { type: 'REMOVE_BUBBLE'; id: string }
-  | { type: 'UPDATE_STREAMING'; text: string }
-  | { type: 'FINISH_STREAMING' }
-  | { type: 'SET_INTERACTION'; mode: StoryState['interactionMode']; choices?: string[] }
-  | { type: 'SET_GENERATING'; val: boolean }
-  | { type: 'SET_TYPING' }
-  | { type: 'CLEAR_TYPING' }
-  | { type: 'SET_PILOT'; val: boolean }
-  | { type: 'PILOT_PAUSE'; reason: string }
-  | { type: 'PILOT_RESUME' }
-  | { type: 'SET_LEVEL_UP'; result: LevelUpResult | null }
-  | { type: 'ADD_SKILL_UNLOCK'; skill: string }
-  | { type: 'CLEAR_SKILL_UNLOCKS' }
-  | { type: 'SET_CHAPTER'; n: number }
-  | { type: 'SET_LOCATION'; loc: string }
-  | { type: 'SET_ARC'; arc: string }
-  | { type: 'SET_ERROR'; err: string | null }
-  | { type: 'CLEAR_BUBBLES' }
-  | { type: 'INCREMENT_ACTION' }
-  | { type: 'SET_ACTION_COUNT'; n: number }
-  | { type: 'RESET_ACTION_COUNT' };
+  | { type: 'SET_NOVEL'; novel: Novel }
+  | { type: 'SET_CHARACTERS'; characters: Character[] }
+  | { type: 'UPDATE_CHARACTER'; character: Character }
+  | { type: 'SET_WORLD_STATE'; ws: WorldState }
+  | { type: 'ADD_ITEMS'; items: ChatItem[] }
+  | { type: 'PUSH_ITEM'; item: ChatItem }
+  | { type: 'UPDATE_STREAMING'; id: string; content: string }
+  | { type: 'REPLACE_STREAMING'; id: string; items: ChatItem[] }
+  | { type: 'SET_CHOICES'; choices: ChoiceOption[] }
+  | { type: 'SET_INTERACTION_MODE'; mode: InteractionMode }
+  | { type: 'SET_GENERATING'; value: boolean }
+  | { type: 'SET_SCENE_PLAN'; plan: ScenePlan | null }
+  | { type: 'SET_ACTIVE_PANEL'; panel: string | null }
+  | { type: 'SET_STREAMING_ID'; id: string | null }
+  | { type: 'RESET' }
 
 const initialState: StoryState = {
-  novelId: null,
-  mcUid: '',
-  genre: '',
-  timelineId: '',
-  bubbles: [],
-  interactionMode: 'roleplay',
+  novel: null,
+  characters: [],
+  worldState: null,
+  chatItems: [],
   choices: [],
+  interactionMode: 'decision',
   isGenerating: false,
-  isShowingTyping: false,
-  pilotMode: false,
-  pilotPaused: false,
-  pilotPauseReason: '',
-  pendingLevelUp: null,
-  pendingSkillUnlocks: [],
-  currentChapter: 1,
-  currentLocation: '',
-  currentArc: '',
-  streamingText: '',
-  error: null,
-  actionCount: 0,
-};
+  scenePlan: null,
+  activePanel: null,
+  streamingId: null,
+}
 
-function reducer(state: StoryState, action: StoryAction): StoryState {
+function storyReducer(state: StoryState, action: StoryAction): StoryState {
   switch (action.type) {
     case 'SET_NOVEL':
-      return { ...state, novelId: action.novelId, mcUid: action.mcUid, genre: action.genre, timelineId: action.timelineId, bubbles: [], streamingText: '', actionCount: 0 };
-    case 'LOAD_BUBBLES':
-      return { ...state, bubbles: action.bubbles, streamingText: '' };
-    case 'ADD_BUBBLE':
-      return { ...state, bubbles: [...state.bubbles, action.bubble], streamingText: '' };
-    case 'REMOVE_BUBBLE':
-      return { ...state, bubbles: state.bubbles.filter(b => b.id !== action.id) };
+      return { ...state, novel: action.novel }
+
+    case 'SET_CHARACTERS':
+      return { ...state, characters: action.characters }
+
+    case 'UPDATE_CHARACTER':
+      return {
+        ...state,
+        characters: state.characters.map(c =>
+          c.internal_uid === action.character.internal_uid ? action.character : c
+        ),
+      }
+
+    case 'SET_WORLD_STATE':
+      return { ...state, worldState: action.ws }
+
+    case 'ADD_ITEMS':
+      return { ...state, chatItems: [...state.chatItems, ...action.items] }
+
+    case 'PUSH_ITEM':
+      return { ...state, chatItems: [...state.chatItems, action.item] }
+
     case 'UPDATE_STREAMING':
-      return { ...state, streamingText: action.text };
-    case 'FINISH_STREAMING':
-      return { ...state, streamingText: '' };
-    case 'SET_INTERACTION':
-      return { ...state, interactionMode: action.mode, choices: action.choices ?? [] };
+      return {
+        ...state,
+        chatItems: state.chatItems.map(item =>
+          item.kind === 'streaming' && item.id === action.id
+            ? { ...item, content: action.content }
+            : item
+        ),
+      }
+
+    case 'REPLACE_STREAMING':
+      return {
+        ...state,
+        chatItems: state.chatItems.flatMap(item =>
+          item.kind === 'streaming' && item.id === action.id ? action.items : [item]
+        ),
+        streamingId: null,
+      }
+
+    case 'SET_CHOICES':
+      return { ...state, choices: action.choices }
+
+    case 'SET_INTERACTION_MODE':
+      return { ...state, interactionMode: action.mode }
+
     case 'SET_GENERATING':
-      return { ...state, isGenerating: action.val };
-    case 'SET_TYPING':
-      return { ...state, isShowingTyping: true };
-    case 'CLEAR_TYPING':
-      return { ...state, isShowingTyping: false };
-    case 'SET_PILOT':
-      return { ...state, pilotMode: action.val, pilotPaused: false };
-    case 'PILOT_PAUSE':
-      return { ...state, pilotPaused: true, pilotPauseReason: action.reason };
-    case 'PILOT_RESUME':
-      return { ...state, pilotPaused: false, pilotPauseReason: '' };
-    case 'SET_LEVEL_UP':
-      return { ...state, pendingLevelUp: action.result };
-    case 'ADD_SKILL_UNLOCK':
-      return { ...state, pendingSkillUnlocks: [...state.pendingSkillUnlocks, action.skill] };
-    case 'CLEAR_SKILL_UNLOCKS':
-      return { ...state, pendingSkillUnlocks: [] };
-    case 'SET_CHAPTER':
-      return { ...state, currentChapter: action.n };
-    case 'SET_LOCATION':
-      return { ...state, currentLocation: action.loc };
-    case 'SET_ARC':
-      return { ...state, currentArc: action.arc };
-    case 'SET_ERROR':
-      return { ...state, error: action.err };
-    case 'CLEAR_BUBBLES':
-      return { ...state, bubbles: [], streamingText: '' };
-    case 'INCREMENT_ACTION':
-      return { ...state, actionCount: state.actionCount + 1 };
-    case 'SET_ACTION_COUNT':
-      return { ...state, actionCount: action.n };
-    case 'RESET_ACTION_COUNT':
-      return { ...state, actionCount: 0 };
+      return { ...state, isGenerating: action.value }
+
+    case 'SET_SCENE_PLAN':
+      return { ...state, scenePlan: action.plan }
+
+    case 'SET_ACTIVE_PANEL':
+      return { ...state, activePanel: action.panel }
+
+    case 'SET_STREAMING_ID':
+      return { ...state, streamingId: action.id }
+
+    case 'RESET':
+      return initialState
+
     default:
-      return state;
+      return state
   }
 }
 
 interface StoryContextValue {
-  state: StoryState;
-  dispatch: React.Dispatch<StoryAction>;
+  state: StoryState
+  dispatch: React.Dispatch<StoryAction>
 }
 
-const StoryContext = createContext<StoryContextValue | null>(null);
+const StoryContext = createContext<StoryContextValue>(null!)
 
-export function StoryProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
-  return <StoryContext.Provider value={{ state, dispatch }}>{children}</StoryContext.Provider>;
+export function StoryProvider({ children }: { children: ReactNode }) {
+  const [state, dispatch] = useReducer(storyReducer, initialState)
+  return (
+    <StoryContext.Provider value={{ state, dispatch }}>
+      {children}
+    </StoryContext.Provider>
+  )
 }
 
 export function useStory() {
-  const ctx = useContext(StoryContext);
-  if (!ctx) throw new Error('useStory must be used within StoryProvider');
-  return ctx;
+  return useContext(StoryContext)
 }

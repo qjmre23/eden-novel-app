@@ -49,3 +49,7 @@ Thumbs.db
 .local/
 *.json
 attached_assets/
+
+# build outputs
+artifacts/eden-novel/dist/
+artifacts/eden-novel/node_modules/

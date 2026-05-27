@@ -1,61 +1,67 @@
-import React, { useEffect, useState } from 'react';
-import AnimatedPanel from '../components/common/AnimatedPanel';
-import { getInventory } from '../database/inventoryDB';
-import { parseJsonSafe } from '../core/utils';
-import type { Inventory } from '../database/db';
-import type { InventoryItem } from '../database/inventoryDB';
+import { motion } from 'framer-motion'
+import { Package } from 'lucide-react'
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
-  novelId: number;
-  mcUid: string;
+const MOCK_ITEMS = [
+  { name: 'Cracked Phone', desc: '12% battery. No signal.', rarity: 'common' },
+  { name: 'Old Lighter', desc: 'Half fuel. Reliable.', rarity: 'common' },
+  { name: 'Handwritten Note', desc: 'Coordinates. Unknown source.', rarity: 'uncommon' },
+  { name: 'Adrenaline Shot', desc: 'Single use. Emergency only.', rarity: 'rare' },
+]
+
+const RARITY_COLORS = {
+  common:   { border: 'rgba(255,255,255,0.1)', glow: 'transparent', text: '#7a7a8c' },
+  uncommon: { border: 'rgba(99,102,241,0.3)', glow: 'rgba(99,102,241,0.05)', text: '#818cf8' },
+  rare:     { border: 'rgba(245,158,11,0.4)', glow: 'rgba(245,158,11,0.06)', text: '#fbbf24' },
 }
 
-export default function InventoryPanel({ open, onClose, novelId, mcUid }: Props) {
-  const [inv, setInv] = useState<Inventory | null>(null);
-  const [items, setItems] = useState<InventoryItem[]>([]);
-
-  useEffect(() => {
-    if (!open) return;
-    getInventory(novelId, mcUid).then(data => {
-      if (data) {
-        setInv(data);
-        setItems(parseJsonSafe<InventoryItem[]>(data.items_json, []));
-      }
-    });
-  }, [open, novelId, mcUid]);
-
+export function InventoryPanel() {
   return (
-    <AnimatedPanel open={open} onClose={onClose} title="Inventory">
-      <div className="px-4 py-4">
-        {inv && (
-          <div className="flex items-center justify-between mb-4 bg-yellow-900/20 border border-yellow-800/40 rounded-xl px-3 py-2">
-            <span className="text-gray-400 text-sm">Currency</span>
-            <span className="text-yellow-300 font-bold">{inv.currency} {inv.currency_label}</span>
-          </div>
-        )}
-
-        {items.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-3">🎒</p>
-            <p>Inventory is empty</p>
-            <p className="text-xs mt-1">Items found during the story appear here</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {items.map((item, i) => (
-              <div key={i} className="flex items-center justify-between bg-gray-900 rounded-xl px-4 py-3 border border-gray-800">
-                <div>
-                  <p className="text-white text-sm font-semibold">{item.name}</p>
-                  {item.description && <p className="text-gray-500 text-xs">{item.description}</p>}
-                </div>
-                <span className="text-gray-300 font-bold text-sm">×{item.qty}</span>
-              </div>
-            ))}
-          </div>
-        )}
+    <div className="space-y-4">
+      {/* Currency */}
+      <div
+        className="flex items-center justify-between rounded-xl px-4 py-3"
+        style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}
+      >
+        <span className="text-[11px] font-mono-eden uppercase tracking-widest text-amber-400">Funds</span>
+        <span className="font-mono-eden text-amber-300 font-bold">¥ 340</span>
       </div>
-    </AnimatedPanel>
-  );
+
+      {/* Grid */}
+      <div className="grid grid-cols-2 gap-2">
+        {MOCK_ITEMS.map((item, i) => {
+          const style = RARITY_COLORS[item.rarity as keyof typeof RARITY_COLORS]
+          return (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.06, duration: 0.25 }}
+              className="rounded-xl p-3 space-y-1.5 cursor-default"
+              style={{ background: style.glow, border: `1px solid ${style.border}` }}
+            >
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <Package className="w-4 h-4 text-[#7a7a8c]" />
+              </div>
+              <div className="text-[12px] font-medium text-[#e6e6f0] leading-tight">{item.name}</div>
+              <div className="text-[10px] text-[#7a7a8c] leading-tight">{item.desc}</div>
+              <div className="text-[9px] font-mono-eden uppercase tracking-wider" style={{ color: style.text }}>
+                {item.rarity}
+              </div>
+            </motion.div>
+          )
+        })}
+
+        {/* Empty slots */}
+        {Array.from({ length: 4 }, (_, i) => (
+          <div
+            key={`empty-${i}`}
+            className="rounded-xl h-24 flex items-center justify-center"
+            style={{ border: '1px dashed rgba(255,255,255,0.05)' }}
+          >
+            <span className="text-[#4a4a5c] text-sm">—</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }

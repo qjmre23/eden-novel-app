@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Eden Novel</string>
-    <string name="title_activity_main">Eden Novel</string>
-    <string name="package_name">com.conpany.eden</string>
-    <string name="custom_url_scheme">com.conpany.eden</string>
-</resources>
