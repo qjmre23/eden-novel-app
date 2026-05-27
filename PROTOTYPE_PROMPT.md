@@ -492,14 +492,3 @@ Begin. Output every file. Make it stunning.
 
 ▲
 
----
-
-# HOW TO USE THIS PROMPT
-
-1. Open a fresh Claude conversation (don't reuse this one).
-2. Paste everything between ▼ and ▲.
-3. Claude will output the full prototype.
-4. Save the files locally and run `pnpm install && pnpm dev`.
-5. When you're happy with the UI, drop the prototype into this repo under `artifacts/eden-novel-prototype/` and replace `src/services/mockAdapter.ts` with an adapter that imports the real backend services (`orchestrationService`, `worldStateService`, `characterDB`, etc.).
-
-The shapes in section 4 and the parser contract in section 4-5 are deliberately chosen so the swap is one file — the rest of the UI stays exactly as the prototype was built.
